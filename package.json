@@ -1,0 +1,31 @@
+{
+  "name": "qortium-network",
+  "version": "0.1.0",
+  "private": true,
+  "license": "0BSD",
+  "description": "A QDN network topology viewer for Qortium.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "dev": "vite",
+    "preview": "vite preview",
+    "qdn:publish": "node scripts/publish-qdn.mjs",
+    "qdn:publish:all": "npm run qdn:publish && npm run qdn:publish:data",
+    "qdn:publish:data": "node scripts/publish-topology-data.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^6.0.2",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "vitest": "^4.1.8"
+  }
+}
