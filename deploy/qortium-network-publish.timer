@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Qortium Network publisher twice a day
+
+[Timer]
+# 06:05 and 18:05 UTC (12h cadence). The 8h MIN_GAP guard means a run that is
+# too close to the last published record simply skips, so cadence is safe.
+OnCalendar=*-*-* 06,18:05:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

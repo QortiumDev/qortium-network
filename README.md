@@ -63,3 +63,18 @@ Default output paths:
 - `target/qdn-topology-data/SNAPSHOT/Network/Network`
 
 Publishing those payload directories to QDN is intentionally left for a later pass.
+
+## Auto-logging
+
+Two helpers drive scheduled, curated logging (intended for the netcup VPS):
+
+```bash
+npm run qdn:collect       # capture one snapshot into the local archive (no publish)
+npm run qdn:auto-publish  # pick the best recent record and publish DATABASE only
+```
+
+`qdn:auto-publish` selects an error-free, in-consensus record with the most
+peers (then edges, version adoption, recency) from the eligible window, keeping
+published records at least `QORTIUM_NETWORK_MIN_GAP_HOURS` apart. Run it with
+`--dry-run` to preview the choice. See [`deploy/README.md`](deploy/README.md)
+for the systemd timer setup and configuration.

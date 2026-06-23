@@ -28,7 +28,7 @@ import math
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -46,7 +46,7 @@ DEFAULT_QDN_NAME = "Network"
 DEFAULT_QDN_IDENTIFIER = "Network"
 QDN_DATA_SCHEMA = "org.qortium.network.topology.qdn-data.v1"
 # Newest-first cap on how many historical snapshots the DATABASE resource keeps.
-QDN_MAX_HISTORY = 250
+QDN_MAX_HISTORY = 1000
 
 COLORS = {
     "IP_CHAIN": "#16a34a",
@@ -185,14 +185,14 @@ def edge_kind(layer: str, transport: str | None) -> str:
     return "I2P_DATA" if normalized == "I2P" else "IP_DATA"
 
 
-def collect_nodes(timeout: int) -> dict[str, Any]:
+def collect_nodes(timeout: int, configs: list[NodeConfig] | None = None) -> dict[str, Any]:
     snapshot: dict[str, Any] = {
         "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "nodes": {},
         "errors": {},
     }
 
-    for node in NODE_CONFIGS:
+    for node in configs if configs is not None else NODE_CONFIGS:
         entry: dict[str, Any] = {
             "label": node.label,
             "name": node.name,
@@ -1191,7 +1191,36 @@ def main() -> int:
         default=40,
         help="Maximum number of non-operator peers to draw; use -1 for unlimited",
     )
+    parser.add_argument(
+        "--local-node",
+        default=None,
+        help="Query this node key (e.g. netcup) over localhost instead of SSH, for running on that host",
+    )
+    parser.add_argument(
+        "--from-snapshot",
+        type=Path,
+        default=None,
+        help="Skip collection and (re)build only the QDN payload from an existing snapshot JSON file",
+    )
     args = parser.parse_args()
+
+    # Rebuild the QDN payload from a stored snapshot without contacting any node.
+    if args.from_snapshot is not None:
+        snapshot = json.loads(args.from_snapshot.read_text(encoding="utf-8"))
+        if "topology" not in snapshot:
+            snapshot["topology"] = build_topology(snapshot, args.max_extra_peers)
+        if args.no_qdn_data:
+            print("Nothing to do: --from-snapshot with --no-qdn-data.", file=sys.stderr)
+            return 0
+        qdn_resources = write_qdn_payload(
+            args.qdn_data_dir,
+            snapshot,
+            qdn_name=args.qdn_name,
+            qdn_identifier=args.qdn_identifier,
+        )
+        print(f"Built QDN payload from {args.from_snapshot}")
+        print(f"DATABASE publish path: {qdn_resources['resources']['database']['publishPath']}")
+        return 0
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     stem = "preview-topology"
@@ -1201,7 +1230,18 @@ def main() -> int:
     snapshot_path = args.snapshot or (args.output_dir / f"{stem}.json")
     png_path = args.png or (args.output_dir / f"{stem}.png")
 
-    snapshot = collect_nodes(args.timeout)
+    configs = NODE_CONFIGS
+    if args.local_node:
+        # Query the named node over localhost (no SSH) so the tool can run on it.
+        configs = [
+            dataclass_replace(node, ssh=None, cwd=None) if node.key == args.local_node else node
+            for node in NODE_CONFIGS
+        ]
+        if all(node.key != args.local_node for node in NODE_CONFIGS):
+            print(f"Unknown --local-node {args.local_node!r}; known: {[n.key for n in NODE_CONFIGS]}", file=sys.stderr)
+            return 2
+
+    snapshot = collect_nodes(args.timeout, configs)
     topology = build_topology(snapshot, args.max_extra_peers)
     snapshot["topology"] = topology
 

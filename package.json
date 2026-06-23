@@ -9,6 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "dev": "vite",
     "preview": "vite preview",
+    "qdn:collect": "node scripts/auto-collect.mjs",
+    "qdn:auto-publish": "node scripts/auto-publish.mjs",
     "qdn:publish": "node scripts/publish-qdn.mjs",
     "qdn:publish:all": "npm run qdn:publish && npm run qdn:publish:data",
     "qdn:publish:data": "node scripts/publish-topology-data.mjs",
