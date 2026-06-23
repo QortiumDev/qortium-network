@@ -87,24 +87,66 @@ function positionNodes(nodes: TopologyNode[], edges: TopologyEdge[], width: numb
   const bottom = height - summaryHeight - 46;
   const centerX = width / 2;
   const centerY = (top + bottom) / 2;
-  const usableRadius = Math.max(170, Math.min(right - left, bottom - top) * 0.38);
-  const positions = new Map<string, { x: number; y: number }>();
+  // Group anchors: chain-only left, data-only right, both-type fan to top/bottom
+  // from the center, legacy "operator" nodes near center. High-degree nodes
+  // still drift to the middle naturally through the edge springs.
+  const VALID_GROUPS = new Set(['operator', 'chain', 'data', 'both']);
+  const groupOf = new Map(
+    ids.map((id) => {
+      const group = nodeById.get(id)!.group;
 
-  ids.forEach((id, index) => {
+      return [id, group && VALID_GROUPS.has(group) ? group : 'both'] as const;
+    }),
+  );
+  const chainX = left + (right - left) * 0.15;
+  const dataX = right - (right - left) * 0.15;
+  const topY = top + (bottom - top) * 0.16;
+  const bottomY = bottom - (bottom - top) * 0.16;
+  const centerLoX = centerX - (right - left) * 0.18;
+  const centerHiX = centerX + (right - left) * 0.18;
+
+  const members: Record<string, string[]> = { both: [], chain: [], data: [], operator: [] };
+  for (const id of ids) {
+    members[groupOf.get(id)!]!.push(id);
+  }
+
+  const positions = new Map<string, { x: number; y: number }>();
+  const seedLine = (group: string[], axis: 'x' | 'y', fixed: number, lo: number, hi: number) => {
+    const count = Math.max(1, group.length);
+
+    group.forEach((id, index) => {
+      const value = lo + (hi - lo) * ((index + 0.5) / count);
+
+      positions.set(id, axis === 'x' ? { x: fixed, y: value } : { x: value, y: fixed });
+    });
+  };
+
+  members.operator!.forEach((id, index) => {
     if (index === 0) {
       positions.set(id, { x: centerX, y: centerY });
-      return;
-    }
+    } else {
+      const angle = index * Math.PI * (3 - Math.sqrt(5));
 
-    const angle = index * Math.PI * (3 - Math.sqrt(5));
-    const radius = usableRadius * Math.sqrt(index / Math.max(1, ids.length - 1));
-    positions.set(id, {
-      x: centerX + Math.cos(angle) * radius,
-      y: centerY + Math.sin(angle) * radius,
-    });
+      positions.set(id, { x: centerX + Math.cos(angle) * 90, y: centerY + Math.sin(angle) * 90 });
+    }
   });
+  seedLine(members.chain!, 'x', chainX, top + 40, bottom - 40);
+  seedLine(members.data!, 'x', dataX, top + 40, bottom - 40);
+
+  const both = members.both!;
+  const split = Math.ceil(both.length / 2);
+  const targetY = new Map<string, number>();
+
+  both.slice(0, split).forEach((id) => targetY.set(id, topY));
+  both.slice(split).forEach((id) => targetY.set(id, bottomY));
+  seedLine(both.slice(0, split), 'y', topY, centerLoX, centerHiX);
+  seedLine(both.slice(split), 'y', bottomY, centerLoX, centerHiX);
 
   for (const id of ids) {
+    if (!positions.has(id)) {
+      positions.set(id, { x: centerX, y: centerY });
+    }
+
     clampNode(id, positions, radii, width, height, summaryHeight);
   }
 
@@ -120,7 +162,7 @@ function positionNodes(nodes: TopologyNode[], edges: TopologyEdge[], width: numb
 
   const maxCentrality = Math.max(...centrality.values(), 1);
 
-  for (let iteration = 0; iteration < 260; iteration += 1) {
+  for (let iteration = 0; iteration < 520; iteration += 1) {
     const forces = new Map(ids.map((id) => [id, { x: 0, y: 0 }]));
 
     ids.forEach((a, index) => {
@@ -171,12 +213,27 @@ function positionNodes(nodes: TopologyNode[], edges: TopologyEdge[], width: numb
     for (const id of ids) {
       const pos = positions.get(id)!;
       const force = forces.get(id)!;
-      const centralPull = 0.002 + 0.008 * ((centrality.get(id) ?? 0) / maxCentrality);
+      const group = groupOf.get(id)!;
+      let ax = force.x;
+      let ay = force.y;
 
-      positions.set(id, {
-        x: pos.x + force.x + (centerX - pos.x) * centralPull,
-        y: pos.y + force.y + (centerY - pos.y) * centralPull,
-      });
+      if (group === 'chain') {
+        ax += (chainX - pos.x) * 0.013;
+        ay += (centerY - pos.y) * 0.0015;
+      } else if (group === 'data') {
+        ax += (dataX - pos.x) * 0.013;
+        ay += (centerY - pos.y) * 0.0015;
+      } else if (group === 'both') {
+        ax += (centerX - pos.x) * 0.004;
+        ay += ((targetY.get(id) ?? centerY) - pos.y) * 0.013;
+      } else {
+        const centralPull = 0.004 + 0.01 * ((centrality.get(id) ?? 0) / maxCentrality);
+
+        ax += (centerX - pos.x) * centralPull;
+        ay += (centerY - pos.y) * centralPull;
+      }
+
+      positions.set(id, { x: pos.x + ax, y: pos.y + ay });
       clampNode(id, positions, radii, width, height, summaryHeight);
     }
   }
