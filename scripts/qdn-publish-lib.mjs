@@ -1,7 +1,12 @@
+import crypto from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, readlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// Standard PKCS8 DER prefix for an Ed25519 private key, followed by the 32-byte
+// seed. Lets us build a Node key object from a raw seed for local signing.
+const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
 
 export const ENV_PREFIX = 'QORTIUM_NETWORK';
 export const DEFAULT_NODE_API_URL = 'http://127.0.0.1:24891';
@@ -354,6 +359,25 @@ async function waitFor(label, predicate) {
   );
 }
 
+// Sign the unsigned transaction bytes locally with the account's Ed25519 key
+// (private key = 32-byte seed), appending the 64-byte signature. Matches
+// wright-bot's signer and the node's /transactions/sign, but needs no
+// production-only endpoint, so it works against hardened (apiRestricted) seeds.
+function signTransactionLocally(rawUnsignedWithNonce58, privateKey58) {
+  const seed = decodeBase58(privateKey58).subarray(0, 32);
+
+  if (seed.length !== 32) {
+    throw new Error('Account private key must contain at least 32 bytes.');
+  }
+
+  const der = Buffer.concat([ED25519_PKCS8_PREFIX, seed]);
+  const key = crypto.createPrivateKey({ format: 'der', key: der, type: 'pkcs8' });
+  const message = decodeBase58(rawUnsignedWithNonce58);
+  const signature = crypto.sign(null, message, key);
+
+  return encodeBase58(Buffer.concat([message, signature]));
+}
+
 async function signAndProcess(config, apiKey, rawUnsignedBytes58, privateKey58, computePath = '/arbitrary/compute') {
   const rawUnsignedWithNonce58 = await request(config, apiKey, computePath, {
     method: 'POST',
@@ -362,16 +386,7 @@ async function signAndProcess(config, apiKey, rawUnsignedBytes58, privateKey58, 
     },
     body: rawUnsignedBytes58,
   });
-  const signedBytes58 = await request(config, apiKey, '/transactions/sign', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      privateKey: privateKey58,
-      transactionBytes: rawUnsignedWithNonce58,
-    }),
-  });
+  const signedBytes58 = signTransactionLocally(rawUnsignedWithNonce58, privateKey58);
   const processResult = await request(config, apiKey, '/transactions/process', {
     method: 'POST',
     headers: {
