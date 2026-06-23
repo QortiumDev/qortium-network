@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Qortium Network collector every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+# Catch up on a single missed run after downtime.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

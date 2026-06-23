@@ -495,6 +495,23 @@ export function appResource() {
   };
 }
 
+export function databaseResource() {
+  const dataRoot = path.resolve(repoRoot, readEnv('QDN_DATA_PATH') ?? 'target/qdn-topology-data');
+  const name = readEnv('QDN_NAME') ?? DEFAULT_NAME;
+  const identifier = readEnv('QDN_IDENTIFIER') ?? DEFAULT_IDENTIFIER;
+  const title = readEnv('QDN_TITLE') ?? DEFAULT_TITLE;
+
+  return {
+    description: 'Qortium network topology latest database',
+    identifier,
+    name,
+    requiredFile: 'manifest.json',
+    service: readEnv('DATABASE_SERVICE') ?? 'DATABASE',
+    sourcePath: path.join(dataRoot, 'DATABASE', name, identifier),
+    title,
+  };
+}
+
 export function topologyDataResources() {
   const dataRoot = path.resolve(repoRoot, readEnv('QDN_DATA_PATH') ?? 'target/qdn-topology-data');
   const name = readEnv('QDN_NAME') ?? DEFAULT_NAME;
@@ -502,15 +519,7 @@ export function topologyDataResources() {
   const title = readEnv('QDN_TITLE') ?? DEFAULT_TITLE;
 
   return [
-    {
-      description: 'Qortium network topology latest database',
-      identifier,
-      name,
-      requiredFile: 'manifest.json',
-      service: readEnv('DATABASE_SERVICE') ?? 'DATABASE',
-      sourcePath: path.join(dataRoot, 'DATABASE', name, identifier),
-      title,
-    },
+    databaseResource(),
     {
       description: 'Qortium network topology point-in-time snapshot',
       identifier,

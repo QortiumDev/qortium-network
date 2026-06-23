@@ -1,0 +1,14 @@
+[Unit]
+Description=Qortium Network topology collector (capture one snapshot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Edit these two for the host:
+User=REPLACE_WITH_SERVICE_USER
+WorkingDirectory=REPLACE_WITH_REPO_PATH
+EnvironmentFile=/etc/qortium-network.env
+# Use an absolute node path if /usr/bin/node is not correct (see `which node`).
+ExecStart=/usr/bin/node scripts/auto-collect.mjs
+Nice=10
