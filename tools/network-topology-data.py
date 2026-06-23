@@ -56,6 +56,16 @@ COLORS = {
     "unknown": "#6b7280",
 }
 
+# Outer-ring colors marking how current each node's Core version is, relative to
+# the newest version seen on the network during this run. The legend shows the
+# three newest version numbers; anything older (or unversioned) is "Older".
+VERSION_COLORS = {
+    "latest": "#16a34a",   # newest version seen
+    "behind1": "#f59e0b",  # one version behind
+    "behind2": "#dc2626",  # two versions behind
+    "older": "#9ca3af",    # older than the three newest, or no version reported
+}
+
 
 @dataclass(frozen=True)
 class NodeConfig:
@@ -155,6 +165,37 @@ def host_part(address: str | None) -> str | None:
     return address
 
 
+def short_version(version: str | None) -> str | None:
+    """Reduce a Core version like 'qortium-1.1.1-5e3f95f' to '1.1.1'."""
+    if not version:
+        return None
+    trimmed = version
+    if trimmed.startswith("qortium-"):
+        trimmed = trimmed[len("qortium-") :]
+    # Drop the trailing build/commit hash if present (e.g. '1.1.1-5e3f95f').
+    return trimmed.split("-", 1)[0] or version
+
+
+def representative_version(versions: list[str]) -> str | None:
+    """Pick a single version to represent a peer that reported more than one."""
+    if not versions:
+        return None
+    # Sorting groups identical versions; the highest tends to be the newest.
+    return sorted(versions)[-1]
+
+
+def version_tuple(short: str | None) -> tuple[int, ...] | None:
+    """Turn a short version like '1.1.3' into a comparable tuple of ints."""
+    if not short:
+        return None
+    parts: list[int] = []
+    for chunk in short.split("."):
+        if not chunk.isdigit():
+            break
+        parts.append(int(chunk))
+    return tuple(parts) or None
+
+
 def capability(peer: dict[str, Any], name: str) -> Any:
     for item in peer.get("capabilities") or []:
         if name in item:
@@ -249,6 +290,7 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
             "id": label,
             "label": label,
             "kind": "operator",
+            "group": "operator",
             "role": node.get("role"),
             "name": node.get("name"),
             "host": node.get("publicHost"),
@@ -390,12 +432,28 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
         }
 
     extras_serializable = {}
+    # Label observed peers by the connection types they participate in:
+    #   C# chain-only, D# data-only, P# both.
+    category_counters = {"C": 0, "D": 0, "P": 0}
     for key, value in extra_nodes.items():
-        value["peerCount"] = int(value.get("chainCount") or 0) + int(value.get("dataCount") or 0)
+        chain = int(value.get("chainCount") or 0)
+        data = int(value.get("dataCount") or 0)
+        value["peerCount"] = chain + data
+        if chain and not data:
+            prefix, group = "C", "chain"
+        elif data and not chain:
+            prefix, group = "D", "data"
+        else:
+            prefix, group = "P", "both"
+        category_counters[prefix] += 1
+        value["label"] = f"{prefix}{category_counters[prefix]}"
+        value["group"] = group
+        sorted_versions = sorted(value["versions"])
         extras_serializable[key] = {
             **value,
             "nodeIds": sorted(value["nodeIds"]),
-            "versions": sorted(value["versions"]),
+            "versions": sorted_versions,
+            "version": representative_version(sorted_versions),
             "connectedTo": sorted(value["connectedTo"]),
             "observedBy": sorted(value["observedBy"]),
         }
@@ -437,16 +495,45 @@ def layout_graph(
     left, right = 70.0, width - 70.0
     top, bottom = 118.0, height - summary_height - 46.0
     cx, cy = width / 2, (top + bottom) / 2
-    usable_radius = max(170.0, min(right - left, bottom - top) * 0.38)
+    # Chain-only peers settle on the left, data-only on the right, both-type
+    # peers fan toward the top/bottom from the center, operators in the middle.
+    group_of = {node_id: (graph_nodes[node_id].get("group") or "operator") for node_id in ids}
+    chain_x = left + (right - left) * 0.15
+    data_x = right - (right - left) * 0.15
+    top_y = top + (bottom - top) * 0.16
+    bottom_y = bottom - (bottom - top) * 0.16
+    center_lo_x = cx - (right - left) * 0.18
+    center_hi_x = cx + (right - left) * 0.18
+
+    members: dict[str, list[str]] = {"operator": [], "chain": [], "data": [], "both": []}
+    for node_id in ids:
+        members[group_of[node_id]].append(node_id)
 
     positions: dict[str, list[float]] = {}
-    for index, node_id in enumerate(ids):
-        if index == 0:
+
+    def seed_line(node_ids: list[str], axis: str, fixed: float, lo: float, hi: float) -> None:
+        count = max(1, len(node_ids))
+        for i, node_id in enumerate(node_ids):
+            value = lo + (hi - lo) * ((i + 0.5) / count)
+            positions[node_id] = [fixed, value] if axis == "x" else [value, fixed]
+
+    # Operators cluster centrally; the busiest one sits dead center.
+    for i, node_id in enumerate(members["operator"]):
+        if i == 0:
             positions[node_id] = [cx, cy]
-            continue
-        angle = index * math.pi * (3 - math.sqrt(5))
-        radius = usable_radius * math.sqrt(index / max(1, len(ids) - 1))
-        positions[node_id] = [cx + math.cos(angle) * radius, cy + math.sin(angle) * radius]
+        else:
+            angle = i * math.pi * (3 - math.sqrt(5))
+            positions[node_id] = [cx + math.cos(angle) * 90, cy + math.sin(angle) * 90]
+
+    seed_line(members["chain"], "x", chain_x, top + 40, bottom - 40)
+    seed_line(members["data"], "x", data_x, top + 40, bottom - 40)
+
+    both = members["both"]
+    split = math.ceil(len(both) / 2)
+    p_target_y = {node_id: top_y for node_id in both[:split]}
+    p_target_y.update({node_id: bottom_y for node_id in both[split:]})
+    seed_line(both[:split], "y", top_y, center_lo_x, center_hi_x)
+    seed_line(both[split:], "y", bottom_y, center_lo_x, center_hi_x)
 
     weighted_edges = [
         (edge["source"], edge["target"], max(1, int(edge.get("count") or 1)))
@@ -466,12 +553,11 @@ def layout_graph(
         x = min(max(x, left + radius), right - radius)
         y = min(max(y, top + radius), bottom - radius)
 
-        # Keep nodes clear of the legend box. Edges can pass behind it.
-        if x < 405 and y < 218:
-            if 405 - x < 218 - y:
-                x = 405 + radius
-            else:
-                y = 218 + radius
+        # Keep nodes clear of the legend box (top-left). Push down rather than
+        # right so left-side chain-only nodes stay on their side. Edges can pass
+        # behind it.
+        if x < 405 and y < 312:
+            y = 312 + radius
         positions[node_id] = [x, y]
 
     for node_id in ids:
@@ -511,9 +597,20 @@ def layout_graph(
 
         for node_id in ids:
             x, y = positions[node_id]
-            central_pull = 0.002 + 0.008 * (centrality[node_id] / max_centrality)
-            forces[node_id][0] += (cx - x) * central_pull
-            forces[node_id][1] += (cy - y) * central_pull
+            group = group_of[node_id]
+            if group == "chain":
+                forces[node_id][0] += (chain_x - x) * 0.013
+                forces[node_id][1] += (cy - y) * 0.0015
+            elif group == "data":
+                forces[node_id][0] += (data_x - x) * 0.013
+                forces[node_id][1] += (cy - y) * 0.0015
+            elif group == "both":
+                forces[node_id][0] += (cx - x) * 0.004
+                forces[node_id][1] += (p_target_y[node_id] - y) * 0.013
+            else:
+                central_pull = 0.004 + 0.01 * (centrality[node_id] / max_centrality)
+                forces[node_id][0] += (cx - x) * central_pull
+                forces[node_id][1] += (cy - y) * central_pull
             positions[node_id][0] += forces[node_id][0]
             positions[node_id][1] += forces[node_id][1]
             clamp(node_id)
@@ -535,6 +632,85 @@ def render_svg(snapshot: dict[str, Any], topology: dict[str, Any]) -> str:
     positions = layout_graph(graph_nodes, topology["edges"], width, height, summary_height)
     max_peer_count = max((int(node.get("peerCount") or 0) for node in graph_nodes.values()), default=1)
 
+    # Rank the distinct Core versions seen so each node can be colored by how far
+    # behind the newest version it is.
+    node_versions = {
+        node_id: short_version(node.get("version") or representative_version(node.get("versions") or []))
+        for node_id, node in graph_nodes.items()
+    }
+    distinct_versions = sorted({vt for vt in (version_tuple(v) for v in node_versions.values()) if vt})
+    version_rank = {vt: index for index, vt in enumerate(distinct_versions)}
+    latest_rank = len(distinct_versions) - 1
+    top_versions = sorted(distinct_versions, reverse=True)[:3]
+
+    def version_label(vt: tuple[int, ...]) -> str:
+        return "v" + ".".join(str(part) for part in vt)
+
+    def version_ring_color(short: str | None) -> str:
+        vt = version_tuple(short)
+        rank = version_rank.get(vt) if vt is not None else None
+        if rank is None:
+            return VERSION_COLORS["older"]
+        lag = latest_rank - rank
+        if lag <= 0:
+            return VERSION_COLORS["latest"]
+        if lag == 1:
+            return VERSION_COLORS["behind1"]
+        if lag == 2:
+            return VERSION_COLORS["behind2"]
+        return VERSION_COLORS["older"]
+
+    named_labels = topology.get("namedLabels") or {}
+
+    def edge_direction(edge: dict[str, Any]) -> tuple[str, str] | None:
+        """Resolve a connection's direction from the reporters' OUTBOUND/INBOUND view."""
+        votes: dict[tuple[str, str], int] = {}
+        for sample in edge["samples"]:
+            reporter = named_labels.get(sample.get("reportedBy"))
+            heading = (sample.get("direction") or "").upper()
+            if reporter is None or reporter not in (edge["source"], edge["target"]):
+                continue
+            if heading not in ("OUTBOUND", "INBOUND"):
+                continue
+            other = edge["target"] if reporter == edge["source"] else edge["source"]
+            pair = (reporter, other) if heading == "OUTBOUND" else (other, reporter)
+            votes[pair] = votes.get(pair, 0) + 1
+        if not votes:
+            return None
+        return max(votes, key=lambda pair: votes[pair])
+
+    def arrow_for_edge(edge: dict[str, Any], color: str, x1: float, y1: float, x2: float, y2: float) -> str:
+        direction = edge_direction(edge)
+        if not direction:
+            return ""
+        _, to_id = direction
+        if to_id == edge["target"]:
+            tail_x, tail_y, tip_x, tip_y = x1, y1, x2, y2
+        elif to_id == edge["source"]:
+            tail_x, tail_y, tip_x, tip_y = x2, y2, x1, y1
+        else:
+            return ""
+        dx, dy = tip_x - tail_x, tip_y - tail_y
+        length = math.hypot(dx, dy) or 1
+        ux, uy = dx / length, dy / length
+        to_radius = node_radius(graph_nodes[to_id], max_peer_count)
+        head_len = 12.0
+        half_width = 4.0  # slender head: ~8 wide for 12 long
+        if length <= to_radius + head_len + 6:
+            return ""
+        tip_x = tip_x - ux * (to_radius + 2)
+        tip_y = tip_y - uy * (to_radius + 2)
+        base_x = tip_x - ux * head_len
+        base_y = tip_y - uy * head_len
+        px, py = -uy, ux
+        left_x, left_y = base_x + px * half_width, base_y + py * half_width
+        right_x, right_y = base_x - px * half_width, base_y - py * half_width
+        # Partly transparent so overlapping heads blend colors instead of hiding.
+        return (
+            f'<polygon points="{tip_x:.1f},{tip_y:.1f} {left_x:.1f},{left_y:.1f} '
+            f'{right_x:.1f},{right_y:.1f}" fill="{color}" fill-opacity="0.6"/>'
+        )
+
     def line_for_edge(edge: dict[str, Any], offset: float) -> str:
         if edge["source"] not in positions or edge["target"] not in positions:
             return ""
@@ -554,11 +730,12 @@ def render_svg(snapshot: dict[str, Any], topology: dict[str, Any]) -> str:
             f"{edge['kind']} count={edge['count']} "
             + "; ".join(sample.get("address") or "" for sample in edge["samples"][:4])
         )
-        return (
+        line = (
             f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
             f'stroke="{color}" stroke-width="{width_attr}" stroke-linecap="round" '
             f'opacity="0.82"{dash}><title>{title}</title></line>'
         )
+        return line + arrow_for_edge(edge, color, x1, y1, x2, y2)
 
     pair_kinds: dict[tuple[str, str], list[str]] = {}
     for edge in topology["edges"]:
@@ -593,6 +770,9 @@ def render_svg(snapshot: dict[str, Any], topology: dict[str, Any]) -> str:
             fill = "#f8fafc"
             stroke = "#64748b"
         font_size = max(10, min(30, radius * (0.72 if len(label) <= 2 else 0.5)))
+        short = node_versions.get(node_id)
+        ring_color = version_ring_color(short)
+        ring_radius = radius + 4.5
         title_parts = [
             str(node.get("name") or node.get("host") or label),
             f"label={label}",
@@ -607,6 +787,7 @@ def render_svg(snapshot: dict[str, Any], topology: dict[str, Any]) -> str:
         node_svg.append(
             f'''
             <g class="node">
+              <circle cx="{x:.1f}" cy="{y:.1f}" r="{ring_radius:.1f}" fill="none" stroke="{ring_color}" stroke-width="4"/>
               <circle cx="{x:.1f}" cy="{y:.1f}" r="{radius:.1f}" fill="{fill}" stroke="{stroke}" stroke-width="2.8"/>
               <text x="{x:.1f}" y="{y + font_size * 0.34:.1f}" class="node-label" font-size="{font_size:.1f}px">{escape(label)}</text>
               <title>{escape(' | '.join(title_parts))}</title>
@@ -621,15 +802,34 @@ def render_svg(snapshot: dict[str, Any], topology: dict[str, Any]) -> str:
         row = index % rows_per_column
         x = 28 + column * 335
         y = height - summary_height + 37 + row * 20
+        version = short_version(node.get("version") or representative_version(node.get("versions") or []))
+        version_suffix = f", v{version}" if version else ""
         text = (
             f"{node['label']}: total {node.get('peerCount', 0)}, "
             f"chain {node.get('chainCount', 0)}, data {node.get('dataCount', 0)}"
+            f"{version_suffix}"
         )
         summary_cells.append(f'<text x="{x}" y="{y}" class="summary">{escape(text)}</text>')
 
+    version_palette = [VERSION_COLORS["latest"], VERSION_COLORS["behind1"], VERSION_COLORS["behind2"]]
+    version_legend_items = [(version_palette[i], version_label(vt)) for i, vt in enumerate(top_versions)]
+    has_older = any(version_ring_color(short) == VERSION_COLORS["older"] for short in node_versions.values())
+    if has_older:
+        version_legend_items.append((VERSION_COLORS["older"], "Older"))
+    version_legend_svg = []
+    for index, (color, text) in enumerate(version_legend_items):
+        col, row = index % 2, index // 2
+        cx_dot, tx = 28 + col * 162, 44 + col * 162
+        cy_dot = 212 + row * 26
+        version_legend_svg.append(
+            f'<circle cx="{cx_dot}" cy="{cy_dot}" r="7" fill="none" stroke="{color}" stroke-width="3.5"/>'
+            f'<text x="{tx}" y="{cy_dot + 4}" class="legend-text">{escape(text)}</text>'
+        )
+    version_legend_rows = "\n        ".join(version_legend_svg)
+
     legend = f'''
       <g class="legend" transform="translate(28 34)">
-        <rect x="0" y="0" width="340" height="164" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+        <rect x="0" y="0" width="340" height="262" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
         <text x="18" y="28" class="legend-title">Previewnet topology</text>
         <line x1="20" y1="52" x2="82" y2="52" stroke="{COLORS['IP_CHAIN']}" stroke-width="3"/>
         <text x="96" y="57" class="legend-text">IP chain connection</text>
@@ -640,6 +840,9 @@ def render_svg(snapshot: dict[str, Any], topology: dict[str, Any]) -> str:
         <line x1="20" y1="130" x2="82" y2="130" stroke="{COLORS['I2P_DATA']}" stroke-width="3" stroke-dasharray="8 7"/>
         <text x="96" y="135" class="legend-text">I2P QDN/data connection</text>
         <text x="18" y="154" class="legend-small">Circle size follows chain + data peer count.</text>
+        <line x1="18" y1="170" x2="322" y2="170" stroke="#e2e8f0" stroke-width="1"/>
+        <text x="18" y="190" class="legend-title">Core version</text>
+        {version_legend_rows}
       </g>
     '''
 
@@ -738,6 +941,23 @@ def summarize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         kind = str(edge.get("kind") or "unknown")
         edge_counts_by_kind[kind] = edge_counts_by_kind.get(kind, 0) + 1
 
+    # Distinct peers seen across all operators, with their reported Core version.
+    peer_versions: dict[Any, str | None] = {}
+    for node in nodes.values():
+        for layer in ("chainPeers", "dataPeers"):
+            for peer in node.get(layer) or []:
+                peer_id = peer.get("nodeId") or peer.get("address")
+                if not peer_id:
+                    continue
+                version = peer.get("version")
+                if version or peer_id not in peer_versions:
+                    peer_versions[peer_id] = version
+
+    version_counts: dict[str, int] = {}
+    for version in peer_versions.values():
+        key = short_version(version) or "unknown"
+        version_counts[key] = version_counts.get(key, 0) + 1
+
     return {
         "schema": f"{QDN_DATA_SCHEMA}.summary",
         "generatedAt": snapshot.get("generatedAt"),
@@ -746,6 +966,7 @@ def summarize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         "graphNodeCount": len(graph_nodes),
         "edgeCount": len(edges),
         "edgeCountsByKind": edge_counts_by_kind,
+        "peerVersionCounts": dict(sorted(version_counts.items())),
         "hasErrors": bool(errors),
         "errors": errors,
         "operators": operator_nodes,
@@ -915,6 +1136,11 @@ def main() -> int:
     parser.add_argument("--snapshot", type=Path, default=None, help="JSON snapshot output path")
     parser.add_argument("--png", type=Path, default=None, help="PNG output path")
     parser.add_argument("--no-png", action="store_true", help="Do not attempt PNG export")
+    parser.add_argument(
+        "--timestamp",
+        action="store_true",
+        help="Append a UTC timestamp to default output filenames so runs are not overwritten",
+    )
     parser.add_argument("--timeout", type=int, default=8, help="Per-endpoint curl timeout in seconds")
     parser.add_argument(
         "--max-extra-peers",
@@ -925,9 +1151,12 @@ def main() -> int:
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    svg_path = args.svg or (args.output_dir / "preview-topology.svg")
-    snapshot_path = args.snapshot or (args.output_dir / "preview-topology.json")
-    png_path = args.png or (args.output_dir / "preview-topology.png")
+    stem = "preview-topology"
+    if args.timestamp:
+        stem += "-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    svg_path = args.svg or (args.output_dir / f"{stem}.svg")
+    snapshot_path = args.snapshot or (args.output_dir / f"{stem}.json")
+    png_path = args.png or (args.output_dir / f"{stem}.png")
 
     snapshot = collect_nodes(args.timeout)
     topology = build_topology(snapshot, args.max_extra_peers)
