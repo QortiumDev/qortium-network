@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 // Standard PKCS8 DER prefix for an Ed25519 private key, followed by the 32-byte
 // seed. Lets us build a Node key object from a raw seed for local signing.
 const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
+const TX_TYPE_ARBITRARY = 10;
+// PaymentData = recipient(25) + assetId(8) + amount(8).
+const ARBITRARY_PAYMENT_LENGTH = 25 + 8 + 8;
 
 export const ENV_PREFIX = 'QORTIUM_NETWORK';
 export const DEFAULT_NODE_API_URL = 'http://127.0.0.1:24891';
@@ -359,9 +362,54 @@ async function waitFor(label, predicate) {
   );
 }
 
+// ARBITRARY transactions are signed over `toBytesForSigning`, which differs from
+// the unsigned `toBytes` the node returns: it omits the 1-byte "is data raw?"
+// flag and, for RAW_DATA, signs the SHA-256 of the data rather than the data
+// itself. (Other tx types sign the unsigned bytes directly.) QDN file publishes
+// are DATA_HASH, so signing == unsigned bytes minus that flag byte. Mirrors
+// org.qortium.transform.transaction.ArbitraryTransactionTransformer.
+function arbitrarySigningBytes(message) {
+  // type(4) + timestamp(8) + groupId(4) + publicKey(32) + nonce(4)
+  let offset = 4 + 8 + 4 + 32 + 4;
+  const skipSizedString = () => {
+    const length = message.readInt32BE(offset);
+    offset += 4 + length;
+  };
+
+  skipSizedString(); // name
+  skipSizedString(); // identifier
+  offset += 4; // method
+  skipSizedString(); // secret
+  offset += 4; // compression
+  const payments = message.readInt32BE(offset);
+  offset += 4 + payments * ARBITRARY_PAYMENT_LENGTH;
+  offset += 4; // service ID
+
+  const flagOffset = offset; // the "is data raw?" byte
+  const isRaw = message[flagOffset];
+  const head = message.subarray(0, flagOffset);
+  const dataLengthOffset = flagOffset + 1;
+
+  if (isRaw === 0) {
+    // DATA_HASH: drop the flag byte; data (the hash) is identical.
+    return Buffer.concat([head, message.subarray(dataLengthOffset)]);
+  }
+
+  // RAW_DATA: replace the raw data with its SHA-256 digest.
+  const dataLength = message.readInt32BE(dataLengthOffset);
+  const dataOffset = dataLengthOffset + 4;
+  const digest = crypto.createHash('sha256').update(message.subarray(dataOffset, dataOffset + dataLength)).digest();
+
+  return Buffer.concat([
+    head,
+    message.subarray(dataLengthOffset, dataOffset), // 4-byte data length
+    digest,
+    message.subarray(dataOffset + dataLength), // size + metadataHash + fee
+  ]);
+}
+
 // Sign the unsigned transaction bytes locally with the account's Ed25519 key
-// (private key = 32-byte seed), appending the 64-byte signature. Matches
-// wright-bot's signer and the node's /transactions/sign, but needs no
+// (private key = 32-byte seed), appending the 64-byte signature. Needs no
 // production-only endpoint, so it works against hardened (apiRestricted) seeds.
 function signTransactionLocally(rawUnsignedWithNonce58, privateKey58) {
   const seed = decodeBase58(privateKey58).subarray(0, 32);
@@ -373,7 +421,8 @@ function signTransactionLocally(rawUnsignedWithNonce58, privateKey58) {
   const der = Buffer.concat([ED25519_PKCS8_PREFIX, seed]);
   const key = crypto.createPrivateKey({ format: 'der', key: der, type: 'pkcs8' });
   const message = decodeBase58(rawUnsignedWithNonce58);
-  const signature = crypto.sign(null, message, key);
+  const signingBytes = message.readInt32BE(0) === TX_TYPE_ARBITRARY ? arbitrarySigningBytes(message) : message;
+  const signature = crypto.sign(null, signingBytes, key);
 
   return encodeBase58(Buffer.concat([message, signature]));
 }
