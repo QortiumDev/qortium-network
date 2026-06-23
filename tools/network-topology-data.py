@@ -45,6 +45,8 @@ DATA_PORT = 24894
 DEFAULT_QDN_NAME = "Network"
 DEFAULT_QDN_IDENTIFIER = "Network"
 QDN_DATA_SCHEMA = "org.qortium.network.topology.qdn-data.v1"
+# Newest-first cap on how many historical snapshots the DATABASE resource keeps.
+QDN_MAX_HISTORY = 250
 
 COLORS = {
     "IP_CHAIN": "#16a34a",
@@ -1014,6 +1016,20 @@ def build_qdn_manifest(
     }
 
 
+def snapshot_index_entry(slug: str, snap: dict[str, Any]) -> dict[str, Any]:
+    """Compact metadata for one record, used by the app's record browser."""
+    topology = snap.get("topology") or {}
+    return {
+        "snapshotId": slug,
+        "generatedAt": snap.get("generatedAt"),
+        "graphNodeCount": len(topology.get("graphNodes") or {}),
+        "edgeCount": len(topology.get("edges") or []),
+        "observedPeerCount": len(topology.get("extraNodes") or {}),
+        "operatorCount": len(snap.get("nodes") or {}),
+        "hasErrors": bool(snap.get("errors")),
+    }
+
+
 def write_qdn_payload(
     root: Path,
     snapshot: dict[str, Any],
@@ -1029,17 +1045,37 @@ def write_qdn_payload(
     database_dir = root / "DATABASE" / qdn_name / qdn_identifier
     snapshot_dir = root / "SNAPSHOT" / qdn_name / qdn_identifier
 
+    # Preserve previously published snapshots so the database keeps history.
+    prior_snapshots: dict[str, dict[str, Any]] = {}
+    existing_snapshots_dir = database_dir / "snapshots"
+    if existing_snapshots_dir.exists():
+        for path in existing_snapshots_dir.glob("*.json"):
+            try:
+                prior_snapshots[path.stem] = json.loads(path.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                continue
+
     if root.exists():
         shutil.rmtree(root)
+
+    history = dict(prior_snapshots)
+    history[slug] = snapshot
+    # Newest first, bounded so the resource does not grow without limit.
+    ordered_slugs = sorted(history, key=lambda item: (history[item].get("generatedAt") or item), reverse=True)
+    ordered_slugs = ordered_slugs[:QDN_MAX_HISTORY]
+    if slug not in ordered_slugs:
+        ordered_slugs.append(slug)
+    index_records = [snapshot_index_entry(item, history[item]) for item in ordered_slugs]
 
     database_files = [
         "manifest.json",
         "latest.json",
+        "index.json",
         "records/summary.json",
         "records/topology.json",
         "records/errors.json",
-        f"snapshots/{slug}.json",
     ]
+    database_files.extend(f"snapshots/{item}.json" for item in ordered_slugs)
     snapshot_files = [
         "manifest.json",
         "snapshot.json",
@@ -1064,10 +1100,21 @@ def write_qdn_payload(
         ),
     )
     write_json(database_dir / "latest.json", snapshot)
+    write_json(
+        database_dir / "index.json",
+        {
+            "schema": f"{QDN_DATA_SCHEMA}.index",
+            "generatedAt": snapshot.get("generatedAt"),
+            "latest": ordered_slugs[0] if ordered_slugs else slug,
+            "count": len(index_records),
+            "records": index_records,
+        },
+    )
     write_json(database_dir / "records" / "summary.json", summary)
     write_json(database_dir / "records" / "topology.json", topology)
     write_json(database_dir / "records" / "errors.json", errors)
-    write_json(database_dir / "snapshots" / f"{slug}.json", snapshot)
+    for item in ordered_slugs:
+        write_json(database_dir / "snapshots" / f"{item}.json", history[item])
 
     for key, node in sorted(nodes.items()):
         write_json(database_dir / "records" / "nodes" / f"{key}.json", node)
