@@ -45,6 +45,7 @@ export type TopologyNode = {
   chainCount?: number;
   connectedTo?: string[];
   dataCount?: number;
+  group?: string;
   height?: number;
   host?: string | null;
   id: string;
