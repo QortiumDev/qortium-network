@@ -1,4 +1,17 @@
-import { Activity, Database, Maximize2, RefreshCw, Route, Server, SlidersHorizontal, Wifi, X } from 'lucide-react';
+import {
+  Activity,
+  ChevronLeft,
+  ChevronRight,
+  Database,
+  History,
+  Maximize2,
+  RefreshCw,
+  Route,
+  Server,
+  SlidersHorizontal,
+  Wifi,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   createGraphModel,
@@ -129,24 +142,55 @@ function ControlContent({
   );
 }
 
-async function loadNetworkSnapshot() {
-  const latest = await qdnRequest<unknown>({
+type RecordEntry = {
+  snapshotId: string;
+  generatedAt?: string;
+  graphNodeCount?: number;
+  edgeCount?: number;
+  operatorCount?: number;
+  hasErrors?: boolean;
+};
+
+function fetchDatabaseJson(path: string) {
+  return qdnRequest<unknown>({
     action: 'FETCH_QDN_RESOURCE',
     async: false,
     identifier: QDN_RESOURCE.identifier,
     maxBytes: 8_000_000,
     name: QDN_RESOURCE.name,
-    path: 'latest.json',
+    path,
     service: QDN_RESOURCE.service,
   });
+}
 
-  return parseNetworkSnapshot(latest);
+async function loadNetworkSnapshot() {
+  return parseNetworkSnapshot(await fetchDatabaseJson('latest.json'));
+}
+
+async function loadSnapshotBySlug(slug: string) {
+  return parseNetworkSnapshot(await fetchDatabaseJson(`snapshots/${slug}.json`));
+}
+
+// Newest record first. Returns [] when no history index is published yet.
+async function loadRecordIndex(): Promise<RecordEntry[]> {
+  const data = await fetchDatabaseJson('index.json');
+  const records = (data as { records?: unknown } | null)?.records;
+
+  if (!Array.isArray(records)) {
+    return [];
+  }
+
+  return records
+    .filter((record): record is RecordEntry => !!record && typeof (record as RecordEntry).snapshotId === 'string')
+    .sort((a, b) => ((a.generatedAt ?? a.snapshotId) < (b.generatedAt ?? b.snapshotId) ? 1 : -1));
 }
 
 export function App() {
   const [snapshot, setSnapshot] = useState<NetworkSnapshot>(sampleSnapshot);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [records, setRecords] = useState<RecordEntry[]>([]);
+  const [selectedSlug, setSelectedSlug] = useState<string | undefined>();
   const [pinnedNodeId, setPinnedNodeId] = useState<string | undefined>();
   const [controlsOpen, setControlsOpen] = useState(false);
   const [visibleKinds, setVisibleKinds] = useState<Set<EdgeKind>>(() => new Set(EDGE_KINDS));
@@ -174,13 +218,51 @@ export function App() {
     setLoadError(null);
 
     try {
-      setSnapshot(await loadNetworkSnapshot());
+      let index: RecordEntry[] = [];
+
+      try {
+        index = await loadRecordIndex();
+      } catch {
+        index = [];
+      }
+
+      const newest = index[0];
+
+      if (newest) {
+        setRecords(index);
+        setSelectedSlug(newest.snapshotId);
+        setSnapshot(await loadSnapshotBySlug(newest.snapshotId));
+      } else {
+        setRecords([]);
+        setSelectedSlug(undefined);
+        setSnapshot(await loadNetworkSnapshot());
+      }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const selectRecord = useCallback(async (slug: string) => {
+    setSelectedSlug(slug);
+    setLoading(true);
+    setLoadError(null);
+
+    try {
+      setSnapshot(await loadSnapshotBySlug(slug));
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const selectedIndex = useMemo(() => {
+    const index = records.findIndex((record) => record.snapshotId === selectedSlug);
+
+    return index < 0 ? 0 : index;
+  }, [records, selectedSlug]);
 
   useEffect(() => {
     void refresh();
@@ -273,6 +355,59 @@ export function App() {
           <span>{Object.keys(snapshot.errors ?? {}).length} collection errors</span>
         </div>
       </section>
+
+      {records.length > 1 ? (
+        <section className="record-bar" aria-label="Snapshot history">
+          <History size={16} />
+          <button
+            className="icon-button secondary record-step"
+            type="button"
+            onClick={() => selectRecord(records[Math.min(records.length - 1, selectedIndex + 1)]!.snapshotId)}
+            disabled={loading || selectedIndex >= records.length - 1}
+            aria-label="Older record"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <input
+            className="record-slider"
+            type="range"
+            min={0}
+            max={records.length - 1}
+            value={records.length - 1 - selectedIndex}
+            disabled={loading}
+            onChange={(event) => {
+              const index = records.length - 1 - Number(event.target.value);
+              const record = records[index];
+
+              if (record) {
+                void selectRecord(record.snapshotId);
+              }
+            }}
+            aria-label="Select snapshot by time"
+          />
+          <button
+            className="icon-button secondary record-step"
+            type="button"
+            onClick={() => selectRecord(records[Math.max(0, selectedIndex - 1)]!.snapshotId)}
+            disabled={loading || selectedIndex <= 0}
+            aria-label="Newer record"
+          >
+            <ChevronRight size={18} />
+          </button>
+          <button
+            className="icon-button secondary"
+            type="button"
+            onClick={() => selectRecord(records[0]!.snapshotId)}
+            disabled={loading || selectedIndex <= 0}
+          >
+            Latest
+          </button>
+          <span className="record-label">
+            {selectedIndex === 0 ? 'Latest' : `${selectedIndex + 1} of ${records.length}`} ·{' '}
+            {formatTimestamp(records[selectedIndex]?.generatedAt)}
+          </span>
+        </section>
+      ) : null}
 
       {loadError ? <div className="load-notice">Using bundled sample data. QDN load failed: {loadError}</div> : null}
 

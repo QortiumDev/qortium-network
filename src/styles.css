@@ -415,6 +415,48 @@ input {
   padding: 8px 10px;
 }
 
+.record-bar {
+  align-items: center;
+  background: var(--qn-color-surface);
+  border: 1px solid var(--qn-color-border);
+  border-radius: var(--qn-radius-sm);
+  color: var(--qn-color-muted);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+  padding: 6px 10px;
+}
+
+.record-bar .record-step {
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.record-slider {
+  accent-color: var(--qn-color-accent);
+  cursor: pointer;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.record-slider:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+
+.record-label {
+  color: var(--qn-color-text);
+  flex: 0 0 auto;
+  font-size: var(--qn-text-small);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .record-label {
+    font-size: 11px;
+  }
+}
+
 .workbench {
   align-items: stretch;
   display: grid;
