@@ -2,13 +2,13 @@
 """
 Collect Previewnet peer topology from the operator nodes and prepare QDN data.
 
-The default map queries the five operator nodes:
+The default map queries the two public seed nodes:
 
-  L local desktop
-  Q Qubes/Kicksecure VM
-  M Mac mini
   N Netcup seed
   R Regxa seed
+
+All other nodes (including the operator's own desktop/VM/Mac) appear only as
+regular observed peers, the same as any other node on the network.
 
 It writes a JSON snapshot plus an SVG diagram. If ImageMagick is available, it
 also exports a PNG unless --no-png is supplied.
@@ -38,8 +38,6 @@ from urllib.parse import urlparse
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT_DIR = REPO_ROOT / "target" / "preview-topology"
 DEFAULT_QDN_DATA_DIR = REPO_ROOT / "target" / "qdn-topology-data"
-QUBES_HANDOFF_DIR = Path("/home/user/Documents/qortium-kicksecure-vpn-ssh-handoff")
-QUBES_SSH_CONFIG = QUBES_HANDOFF_DIR / "ssh_config.onion"
 
 API_PORT = 24891
 CHAIN_PORT = 24892
@@ -79,31 +77,6 @@ class NodeConfig:
 
 
 NODE_CONFIGS = [
-    NodeConfig("local", "L", "Local", "participant"),
-    NodeConfig(
-        "qubes",
-        "Q",
-        "Qubes",
-        "participant",
-        ssh=(
-            "ssh",
-            "-F",
-            str(QUBES_SSH_CONFIG),
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=45",
-            "qortium-kicksecure-vpn-onion",
-        ),
-        cwd=QUBES_HANDOFF_DIR,
-    ),
-    NodeConfig(
-        "mac",
-        "M",
-        "Mac",
-        "participant",
-        ssh=("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "qortium-macmini"),
-    ),
     NodeConfig(
         "netcup",
         "N",
@@ -286,16 +259,25 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
     for node in named_by_key.values():
         label = node["label"]
         status = node.get("status") or {}
+        op_chain = status.get("numberOfConnections", len(node.get("chainPeers") or []))
+        op_data = status.get("numberOfDataConnections", len(node.get("dataPeers") or []))
+        # Group operators by their own connection mix, same as any other node.
+        if op_chain and not op_data:
+            op_group = "chain"
+        elif op_data and not op_chain:
+            op_group = "data"
+        else:
+            op_group = "both"
         graph_nodes[label] = {
             "id": label,
             "label": label,
             "kind": "operator",
-            "group": "operator",
+            "group": op_group,
             "role": node.get("role"),
             "name": node.get("name"),
             "host": node.get("publicHost"),
-            "chainCount": status.get("numberOfConnections", len(node.get("chainPeers") or [])),
-            "dataCount": status.get("numberOfDataConnections", len(node.get("dataPeers") or [])),
+            "chainCount": op_chain,
+            "dataCount": op_data,
             "status": status.get("syncPhase"),
             "height": status.get("height"),
             "version": (node.get("info") or {}).get("buildVersion"),
@@ -556,8 +538,8 @@ def layout_graph(
         # Keep nodes clear of the legend box (top-left). Push down rather than
         # right so left-side chain-only nodes stay on their side. Edges can pass
         # behind it.
-        if x < 405 and y < 312:
-            y = 312 + radius
+        if x < 405 and y < 370:
+            y = 370 + radius
         positions[node_id] = [x, y]
 
     for node_id in ids:
@@ -761,14 +743,15 @@ def render_svg(snapshot: dict[str, Any], topology: dict[str, Any]) -> str:
         x, y = positions[node_id]
         radius = node_radius(node, max_peer_count)
         label = node["label"]
-        role = node.get("role")
-        kind = node.get("kind")
-        if role == "seed":
-            fill = "#ecfdf5"
-            stroke = "#065f46"
-        else:
-            fill = "#f8fafc"
-            stroke = "#64748b"
+        # Uniform neutral base for every node; single-layer peers are tinted by
+        # which side they were seen on. For I2P these cannot be merged across
+        # chain/data, so a C# and a D# may actually be the same machine.
+        fill = "#f8fafc"
+        stroke = "#64748b"
+        if node.get("group") == "chain":
+            fill = "#dbeafe"  # light blue, echoes the I2P chain edges
+        elif node.get("group") == "data":
+            fill = "#ffedd5"  # light orange, echoes the I2P data edges
         font_size = max(10, min(30, radius * (0.72 if len(label) <= 2 else 0.5)))
         short = node_versions.get(node_id)
         ring_color = version_ring_color(short)
@@ -827,9 +810,21 @@ def render_svg(snapshot: dict[str, Any], topology: dict[str, Any]) -> str:
         )
     version_legend_rows = "\n        ".join(version_legend_svg)
 
+    # Fill-tint key for single-layer (chain-only / data-only) peers.
+    fill_y = 212 + math.ceil(len(version_legend_items) / 2) * 26 + 8
+    fill_legend = (
+        f'<text x="18" y="{fill_y - 2}" class="legend-title">Node fill</text>'
+        f'<circle cx="28" cy="{fill_y + 22}" r="7" fill="#dbeafe" stroke="#64748b" stroke-width="1.5"/>'
+        f'<text x="44" y="{fill_y + 26}" class="legend-text">chain-only</text>'
+        f'<circle cx="190" cy="{fill_y + 22}" r="7" fill="#ffedd5" stroke="#64748b" stroke-width="1.5"/>'
+        f'<text x="206" y="{fill_y + 26}" class="legend-text">data-only</text>'
+        f'<text x="18" y="{fill_y + 48}" class="legend-small">I2P peers appear once per layer (cannot be merged).</text>'
+    )
+    legend_box_h = fill_y + 58
+
     legend = f'''
       <g class="legend" transform="translate(28 34)">
-        <rect x="0" y="0" width="340" height="262" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+        <rect x="0" y="0" width="340" height="{legend_box_h}" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
         <text x="18" y="28" class="legend-title">Previewnet topology</text>
         <line x1="20" y1="52" x2="82" y2="52" stroke="{COLORS['IP_CHAIN']}" stroke-width="3"/>
         <text x="96" y="57" class="legend-text">IP chain connection</text>
@@ -843,6 +838,7 @@ def render_svg(snapshot: dict[str, Any], topology: dict[str, Any]) -> str:
         <line x1="18" y1="170" x2="322" y2="170" stroke="#e2e8f0" stroke-width="1"/>
         <text x="18" y="190" class="legend-title">Core version</text>
         {version_legend_rows}
+        {fill_legend}
       </g>
     '''
 
