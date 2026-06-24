@@ -211,7 +211,10 @@ export function App() {
     () => createGraphModel(activeSnapshot, visibleKinds, pinnedNodeId),
     [activeSnapshot, pinnedNodeId, visibleKinds],
   );
-  const graph = useAnimatedGraph(targetGraph);
+  // Identifies the active record; changing it snaps the graph (no slide) because
+  // node labels are not stable identities across records.
+  const recordKey = selectedSlug ?? activeSnapshot.generatedAt ?? '';
+  const graph = useAnimatedGraph(targetGraph, recordKey);
   const connectedNodeIds = useMemo(
     () => (activeNodeId ? getConnectedNodeIds(targetGraph.edges, activeNodeId) : new Set<string>()),
     [activeNodeId, targetGraph.edges],

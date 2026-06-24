@@ -76,23 +76,40 @@ function interpolateGraph(previous: GraphModel, target: GraphModel, t: number): 
  * Non-positional fields always reflect the latest target; only x/y/radius and edge
  * line coordinates are interpolated over ~420ms with an ease-in-out curve.
  */
-export function useAnimatedGraph(target: GraphModel): GraphModel {
+/**
+ * `instantKey` identifies the underlying record. When it changes (switching to a
+ * different snapshot), the graph snaps to the new layout instead of tweening,
+ * because node labels are not stable identities across records. Tweening still
+ * happens for same-record changes (e.g. focusing a node or toggling filters).
+ */
+export function useAnimatedGraph(target: GraphModel, instantKey?: string): GraphModel {
   const [displayed, setDisplayed] = useState<GraphModel>(target);
   // Holds the currently-visible model so an interrupted animation resumes from
   // where it is on screen rather than from the stale previous target.
   const displayedRef = useRef<GraphModel>(target);
   const frameRef = useRef<number | null>(null);
   const isFirstRender = useRef(true);
+  const instantKeyRef = useRef(instantKey);
 
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
       displayedRef.current = target;
+      instantKeyRef.current = instantKey;
 
       return;
     }
 
-    if (prefersReducedMotion() || typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+    const recordChanged = instantKey !== instantKeyRef.current;
+
+    instantKeyRef.current = instantKey;
+
+    if (recordChanged || prefersReducedMotion() || typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+
       displayedRef.current = target;
       setDisplayed(target);
 
@@ -125,7 +142,7 @@ export function useAnimatedGraph(target: GraphModel): GraphModel {
         frameRef.current = null;
       }
     };
-  }, [target]);
+  }, [target, instantKey]);
 
   return displayed;
 }
