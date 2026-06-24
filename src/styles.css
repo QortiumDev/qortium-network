@@ -340,11 +340,22 @@ input {
   min-width: 0;
 }
 
-.brand-mark {
-  color: var(--qn-color-text);
-  flex: none;
-  height: 2.6em;
-  width: 2.6em;
+.top-bar__mark {
+  align-items: center;
+  background: var(--qn-color-accent-soft);
+  border: 1px solid var(--qn-color-accent-ring);
+  border-radius: var(--qn-radius-md);
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+.top-bar__mark img {
+  display: block;
+  height: 34px;
+  width: 34px;
 }
 
 .top-bar h1 {
