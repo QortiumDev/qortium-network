@@ -34,6 +34,15 @@ const QDN_RESOURCE = {
   service: 'DATABASE',
 } as const;
 
+// Rendered while the first real snapshot is still loading, so the graph is empty
+// rather than flashing bundled sample data on startup.
+const EMPTY_SNAPSHOT: NetworkSnapshot = {
+  errors: {},
+  generatedAt: undefined,
+  nodes: {},
+  topology: { edges: [], graphNodes: {} },
+};
+
 const EDGE_LABELS: Record<EdgeKind, string> = {
   I2P_CHAIN: 'I2P chain',
   I2P_DATA: 'I2P QDN/data',
@@ -186,7 +195,7 @@ async function loadRecordIndex(): Promise<RecordEntry[]> {
 }
 
 export function App() {
-  const [snapshot, setSnapshot] = useState<NetworkSnapshot>(sampleSnapshot);
+  const [snapshot, setSnapshot] = useState<NetworkSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [records, setRecords] = useState<RecordEntry[]>([]);
@@ -197,9 +206,10 @@ export function App() {
   const [displaySettings, setDisplaySettings] = useState(getInitialDisplaySettings);
 
   const activeNodeId = pinnedNodeId;
+  const activeSnapshot = snapshot ?? EMPTY_SNAPSHOT;
   const targetGraph = useMemo(
-    () => createGraphModel(snapshot, visibleKinds, pinnedNodeId),
-    [pinnedNodeId, snapshot, visibleKinds],
+    () => createGraphModel(activeSnapshot, visibleKinds, pinnedNodeId),
+    [activeSnapshot, pinnedNodeId, visibleKinds],
   );
   const graph = useAnimatedGraph(targetGraph);
   const connectedNodeIds = useMemo(
@@ -239,6 +249,7 @@ export function App() {
       }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
+      setSnapshot(sampleSnapshot);
     } finally {
       setLoading(false);
     }
@@ -284,6 +295,40 @@ export function App() {
     };
   }, []);
 
+  // Arrow keys page through records: Left = older, Right = newer (records[0] is newest).
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return;
+      }
+
+      if (records.length < 2 || loading) {
+        return;
+      }
+
+      const nextIndex = event.key === 'ArrowLeft'
+        ? Math.min(records.length - 1, selectedIndex + 1)
+        : Math.max(0, selectedIndex - 1);
+
+      if (nextIndex !== selectedIndex) {
+        event.preventDefault();
+        void selectRecord(records[nextIndex]!.snapshotId);
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [records, selectedIndex, loading, selectRecord]);
+
   function toggleKind(kind: EdgeKind) {
     setVisibleKinds((current) => {
       const next = new Set(current);
@@ -307,7 +352,11 @@ export function App() {
       <header className="top-bar">
         <div>
           <h1>Qortium Previewnet live topology</h1>
-          <p>Generated {formatTimestamp(snapshot.generatedAt)} from /admin/status, /peers, and /peers/data.</p>
+          <p>
+            {snapshot
+              ? `Generated ${formatTimestamp(snapshot.generatedAt)} from /admin/status, /peers, and /peers/data.`
+              : 'Loading network topology…'}
+          </p>
         </div>
         <div className="top-actions">
           <button
@@ -352,7 +401,7 @@ export function App() {
         </div>
         <div>
           <Activity size={16} />
-          <span>{Object.keys(snapshot.errors ?? {}).length} collection errors</span>
+          <span>{Object.keys(snapshot?.errors ?? {}).length} collection errors</span>
         </div>
       </section>
 
@@ -417,6 +466,11 @@ export function App() {
         </aside>
 
         <section className="map-surface" aria-label="Network topology graph">
+          {!snapshot ? (
+            <div className="map-loading" role="status">
+              {loadError ? 'Could not load topology.' : 'Loading network topology…'}
+            </div>
+          ) : null}
           <svg
             viewBox={viewport.viewBox}
             preserveAspectRatio="xMidYMid meet"
