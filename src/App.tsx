@@ -21,8 +21,8 @@ import {
   getPeerCount,
   parseNetworkSnapshot,
 } from './graphModel';
-import { BrandMark } from './BrandMark';
 import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDisplaySettings } from './displaySettings';
+import networkIconUrl from './assets/brand/qortium-network-icon.png';
 import { qdnRequest } from './qdnRequest';
 import { sampleSnapshot } from './sampleData';
 import { useAnimatedGraph } from './useAnimatedGraph';
@@ -357,7 +357,9 @@ export function App() {
     <main className="app-shell">
       <header className="top-bar">
         <div className="top-bar__brand">
-          <BrandMark />
+          <span className="top-bar__mark" aria-hidden="true">
+            <img alt="" src={networkIconUrl} />
+          </span>
           <div className="top-bar__heading">
             <h1>Qortium Previewnet live topology</h1>
             <p>
