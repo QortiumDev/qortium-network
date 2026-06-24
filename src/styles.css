@@ -329,6 +329,24 @@ input {
   min-height: 0;
 }
 
+.top-bar__brand {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+.top-bar__heading {
+  min-width: 0;
+}
+
+.brand-mark {
+  color: var(--qn-color-text);
+  flex: none;
+  height: 2.6em;
+  width: 2.6em;
+}
+
 .top-bar h1 {
   font-size: var(--qn-text-title);
   letter-spacing: 0;
