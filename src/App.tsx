@@ -21,6 +21,7 @@ import {
   getPeerCount,
   parseNetworkSnapshot,
 } from './graphModel';
+import { BrandMark } from './BrandMark';
 import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDisplaySettings } from './displaySettings';
 import { qdnRequest } from './qdnRequest';
 import { sampleSnapshot } from './sampleData';
@@ -355,13 +356,16 @@ export function App() {
   return (
     <main className="app-shell">
       <header className="top-bar">
-        <div>
-          <h1>Qortium Previewnet live topology</h1>
-          <p>
-            {snapshot
-              ? `Generated ${formatTimestamp(snapshot.generatedAt)} from /admin/status, /peers, and /peers/data.`
-              : 'Loading network topology…'}
-          </p>
+        <div className="top-bar__brand">
+          <BrandMark />
+          <div className="top-bar__heading">
+            <h1>Qortium Previewnet live topology</h1>
+            <p>
+              {snapshot
+                ? `Generated ${formatTimestamp(snapshot.generatedAt)} from /admin/status, /peers, and /peers/data.`
+                : 'Loading network topology…'}
+            </p>
+          </div>
         </div>
         <div className="top-actions">
           <button
