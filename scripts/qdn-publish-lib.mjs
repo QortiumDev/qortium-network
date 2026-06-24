@@ -535,6 +535,21 @@ async function publishResource(config, apiKey, account, resource) {
   await signAndProcess(config, apiKey, rawUnsignedBytes58, account.accountPrivateKey);
 }
 
+async function deleteResource(config, apiKey, account, resource) {
+  const pathname = `/arbitrary/resource/${resource.service}/${encodeURIComponent(resource.name)}/${encodeURIComponent(
+    resource.identifier,
+  )}/delete`;
+  const rawUnsignedBytes58 = await request(config, apiKey, appendQuery(pathname, { fee: 0 }), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain',
+    },
+    body: '',
+  });
+
+  await signAndProcess(config, apiKey, rawUnsignedBytes58, account.accountPrivateKey);
+}
+
 function assertPublishSource(resource) {
   if (!existsSync(resource.sourcePath)) {
     throw new Error(`Publish source does not exist for ${resource.service}: ${resource.sourcePath}`);
@@ -656,6 +671,46 @@ export async function publishResources(resources, { dryRun = false } = {}) {
   }
 
   return published;
+}
+
+/**
+ * Build, sign, and submit an on-chain ARBITRARY *delete* transaction for each
+ * resource — removing it from QDN entirely (all its accumulated records). The
+ * transaction takes effect once minted into a block; a later publish recreates
+ * the resource fresh. Only service/name/identifier are used (no source needed).
+ */
+export async function deleteResources(resources, { dryRun = false } = {}) {
+  const config = buildConfig();
+
+  console.log(`Node: ${config.nodeApiUrl}`);
+  for (const resource of resources) {
+    console.log(`Delete: qdn://${resource.service}/${resource.name}/${resource.identifier}`);
+  }
+
+  if (dryRun) {
+    console.log('Dry run complete. No transactions were created.');
+    return [];
+  }
+
+  const apiKey = getApiKey(config);
+  const account = getLocalPreviewAccount(config);
+
+  console.log(`Owner: ${account.accountAddress}`);
+  console.log('API key: loaded');
+
+  const status = await requestJson(config, apiKey, '/admin/status');
+  if (!status || status.syncPercent !== 100 || status.isSynchronizing) {
+    throw new Error(`Node is not synced: ${JSON.stringify(status)}`);
+  }
+
+  const deleted = [];
+  for (const resource of resources) {
+    await deleteResource(config, apiKey, account, resource);
+    console.log(`Delete transaction submitted: qdn://${resource.service}/${resource.name}/${resource.identifier}`);
+    deleted.push(resource);
+  }
+
+  return deleted;
 }
 
 export function parseCliFlags(argv) {
