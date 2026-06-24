@@ -8,6 +8,11 @@
 //   QORTIUM_NETWORK_LOCAL_NODE       node key queried over localhost, e.g. netcup
 //   QORTIUM_NETWORK_COLLECT_TIMEOUT  per-endpoint curl timeout seconds (default 8)
 //   QORTIUM_NETWORK_PYTHON           python interpreter (default python3)
+//   QORTIUM_NETWORK_DISCOVER         set to "0"/"false" to query seeds only (default on)
+//   QORTIUM_NETWORK_MAX_HOPS         BFS depth out from the seeds (tool default 4)
+//   QORTIUM_NETWORK_MAX_NODES        cap on total nodes queried (tool default 250)
+//   QORTIUM_NETWORK_PROBE_TIMEOUT    per-endpoint timeout seconds when probing peers (tool default 5)
+//   QORTIUM_NETWORK_PROBE_WORKERS    peers probed concurrently (tool default 12)
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
@@ -38,6 +43,23 @@ const args = [
 
 if (localNode) {
   args.push('--local-node', localNode);
+}
+
+const discover = readEnv('DISCOVER');
+if (discover === '0' || discover?.toLowerCase() === 'false') {
+  args.push('--no-discover');
+} else {
+  for (const [name, flag] of [
+    ['MAX_HOPS', '--max-hops'],
+    ['MAX_NODES', '--max-nodes'],
+    ['PROBE_TIMEOUT', '--probe-timeout'],
+    ['PROBE_WORKERS', '--probe-workers'],
+  ]) {
+    const value = readEnv(name);
+    if (value) {
+      args.push(flag, value);
+    }
+  }
 }
 
 // The tool exits 2 when a node fails to respond; keep the snapshot (the

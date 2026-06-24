@@ -86,7 +86,15 @@ function scoreRecord(snap) {
   const errorCount = Object.keys(snap.errors ?? {}).length;
   const heights = new Set();
 
+  // Consensus means the seed operators agree on height — a sanity check that the
+  // snapshot was taken at a coherent moment. Discovered peers are deliberately
+  // excluded: on a live network some peer is almost always mid-sync at a different
+  // height, which would otherwise make every record fail the consensus gate.
   for (const node of nodes) {
+    if (node?.role !== 'seed') {
+      continue;
+    }
+
     const height = node?.status?.height;
 
     if (typeof height === 'number') {
