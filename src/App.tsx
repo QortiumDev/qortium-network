@@ -212,8 +212,10 @@ export function App() {
     [activeSnapshot, pinnedNodeId, visibleKinds],
   );
   // Identifies the active record; changing it snaps the graph (no slide) because
-  // node labels are not stable identities across records.
-  const recordKey = selectedSlug ?? activeSnapshot.generatedAt ?? '';
+  // node labels are not stable identities across records. Derived from the
+  // snapshot itself (not selectedSlug) so it changes in lockstep with targetGraph
+  // — selectedSlug updates a render earlier, before the new snapshot loads.
+  const recordKey = activeSnapshot.generatedAt ?? '';
   const graph = useAnimatedGraph(targetGraph, recordKey);
   const connectedNodeIds = useMemo(
     () => (activeNodeId ? getConnectedNodeIds(targetGraph.edges, activeNodeId) : new Set<string>()),
