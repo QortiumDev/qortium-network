@@ -2,13 +2,23 @@
 """
 Collect Previewnet peer topology from the operator nodes and prepare QDN data.
 
-The default map queries the two public seed nodes:
+Collection seeds from the two public VPS seed nodes:
 
   N Netcup seed
   R Regxa seed
 
-All other nodes (including the operator's own desktop/VM/Mac) appear only as
-regular observed peers, the same as any other node on the network.
+and then breadth-first probes every reachable peer's public HTTP API outward
+from there (--max-hops), deduping by host and by nodeId as it expands. Each
+node that answers becomes a first-class observer whose own /peers list
+contributes edges, so non-seed links — including I2P↔I2P connections that touch
+a reachable node, and nodes several hops from the seeds — are represented
+instead of collapsing onto the two seeds.
+
+Privacy boundary: only the voluntary, opt-out HTTP API is queried (read-only
+/admin/info, /admin/status, /peers, /peers/data). I2P-only nodes have no IP in
+any peer list, so there is nothing to dial — they remain observed-only leaves
+and stay private by construction. The involuntary P2P gossip surface is never
+used here. Pass --no-discover to restrict collection to the seeds only.
 
 It writes a JSON snapshot plus an SVG diagram. If ImageMagick is available, it
 also exports a PNG unless --no-png is supplied.
@@ -22,16 +32,19 @@ It also writes QDN-ready data directories for later publication:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import datetime as dt
+import ipaddress
 import json
 import math
 import shutil
+import string
 import subprocess
 import sys
 from dataclasses import dataclass, replace as dataclass_replace
 from html import escape
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
 from urllib.parse import urlparse
 
 
@@ -125,6 +138,108 @@ def fetch_endpoint(node: NodeConfig, endpoint: str, timeout: int) -> Any:
     return json.loads(output)
 
 
+def fetch_public_endpoint(host: str, api_port: int, endpoint: str, timeout: int) -> Any:
+    """Query a node's public HTTP API directly over clearnet (no SSH)."""
+    url = f"http://{host}:{api_port}{endpoint}"
+    output = run_command(["curl", "-fsS", "--max-time", str(timeout), url], None, timeout + 5)
+    return json.loads(output)
+
+
+def probe_public_node(host: str, api_port: int, timeout: int) -> dict[str, Any]:
+    """Read the four topology endpoints from a node's public API.
+
+    /admin/info is fetched first as a cheap reachability gate: if the API is not
+    exposed (connection refused / timeout) we bail immediately instead of waiting
+    out four separate timeouts. The /peers calls are intentionally read-only.
+    """
+    try:
+        info = fetch_public_endpoint(host, api_port, "/admin/info", timeout)
+    except Exception as exc:  # noqa: BLE001 - unreachable/closed API is the common case
+        return {"ok": False, "error": str(exc)}
+
+    result: dict[str, Any] = {"ok": True, "info": info}
+    for field, endpoint in (
+        ("status", "/admin/status"),
+        ("chainPeers", "/peers"),
+        ("dataPeers", "/peers/data"),
+    ):
+        try:
+            result[field] = fetch_public_endpoint(host, api_port, endpoint, timeout)
+        except Exception as exc:  # noqa: BLE001 - keep whatever endpoints did answer
+            result[field] = None
+            result.setdefault("partialErrors", {})[endpoint] = str(exc)
+    return result
+
+
+def probe_hosts_concurrent(
+    hosts: Iterable[str], api_port: int, timeout: int, workers: int
+) -> list[tuple[str, dict[str, Any]]]:
+    hosts = list(hosts)
+    if not hosts:
+        return []
+    results: list[tuple[str, dict[str, Any]]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
+        future_to_host = {
+            executor.submit(probe_public_node, host, api_port, timeout): host for host in hosts
+        }
+        for future in concurrent.futures.as_completed(future_to_host):
+            host = future_to_host[future]
+            try:
+                results.append((host, future.result()))
+            except Exception as exc:  # noqa: BLE001 - defensive; probe already catches
+                results.append((host, {"ok": False, "error": str(exc)}))
+    return results
+
+
+def is_probeable_host(host: str | None) -> bool:
+    """Skip I2P (no clearnet identity), loopback, and unspecified/link-local addresses.
+
+    I2P-only peers have no IP in any peer list, so there is nothing to dial — they
+    stay private by construction, which is exactly the intended boundary."""
+    if not host:
+        return False
+    lowered = host.lower()
+    if lowered == "localhost" or lowered.endswith(".b32.i2p"):
+        return False
+    try:
+        ip = ipaddress.ip_address(lowered)
+    except ValueError:
+        return True  # a hostname we can attempt to resolve/dial
+    return not (ip.is_loopback or ip.is_unspecified or ip.is_link_local or ip.is_multicast)
+
+
+def clearnet_peer_hosts(entry: dict[str, Any]) -> set[str]:
+    """Distinct dialable clearnet hosts appearing in a node's chain/data peer lists."""
+    hosts: set[str] = set()
+    for layer in ("chainPeers", "dataPeers"):
+        for peer in entry.get(layer) or []:
+            host = host_part(peer.get("address"))
+            if is_probeable_host(host):
+                hosts.add(host)  # type: ignore[arg-type]
+    return hosts
+
+
+def make_label_generator(used: set[str]) -> Callable[[], str]:
+    """Hand out short, collision-free labels (A, B, ... Z, A1, B1, ...).
+
+    Seed labels (N, R) are pre-reserved by the caller so discovered nodes skip them."""
+    counter = 0
+
+    def next_label() -> str:
+        nonlocal counter
+        while True:
+            index = counter
+            counter += 1
+            base = string.ascii_uppercase[index % 26]
+            suffix = index // 26
+            label = base if suffix == 0 else f"{base}{suffix}"
+            if label not in used:
+                used.add(label)
+                return label
+
+    return next_label
+
+
 def host_part(address: str | None) -> str | None:
     if not address:
         return None
@@ -212,6 +327,107 @@ def collect_nodes(timeout: int, configs: list[NodeConfig] | None = None) -> dict
     return snapshot
 
 
+def collect_topology(
+    timeout: int,
+    seed_configs: list[NodeConfig] | None,
+    *,
+    discover: bool,
+    max_hops: int,
+    max_nodes: int,
+    probe_timeout: int,
+    probe_workers: int,
+    api_port: int,
+) -> dict[str, Any]:
+    """Seed from the operator VPS nodes, then breadth-first probe every reachable
+    peer's public API outward, deduping by host and by nodeId as we expand.
+
+    Each reachable node becomes a first-class observer: its own /peers list
+    contributes edges, so non-seed links (including I2P↔I2P touching a reachable
+    node) appear instead of everything collapsing onto the two seeds. I2P-only and
+    API-closed nodes are simply never reached and remain observed-only leaves."""
+    snapshot = collect_nodes(timeout, seed_configs)
+
+    used_labels = {entry["label"] for entry in snapshot["nodes"].values()}
+    probed_hosts: set[str] = set()
+    known_node_ids: dict[str, str] = {}
+    for key, entry in snapshot["nodes"].items():
+        if entry.get("publicHost"):
+            probed_hosts.add(entry["publicHost"])
+        node_id = (entry.get("info") or {}).get("nodeId")
+        if node_id:
+            known_node_ids[node_id] = key
+
+    if not discover:
+        snapshot["discovery"] = {"enabled": False}
+        return snapshot
+
+    next_label = make_label_generator(used_labels)
+
+    frontier: set[str] = set()
+    for entry in snapshot["nodes"].values():
+        frontier |= clearnet_peer_hosts(entry)
+    frontier -= probed_hosts
+
+    hops_run = 0
+    reachable_count = 0
+    for hop in range(1, max_hops + 1):
+        if not frontier or len(snapshot["nodes"]) >= max_nodes:
+            break
+        hops_run = hop
+        targets = sorted(frontier)
+        probed_hosts.update(targets)
+
+        newly_added: list[dict[str, Any]] = []
+        for host, result in probe_hosts_concurrent(targets, api_port, probe_timeout, probe_workers):
+            if not result.get("ok"):
+                continue
+            reachable_count += 1
+            info = result.get("info") or {}
+            node_id = info.get("nodeId")
+            # Dedupe by node identity: a node reachable at several addresses is one node.
+            if node_id and node_id in known_node_ids:
+                continue
+            key = node_id or f"auto:{host}"
+            if key in snapshot["nodes"]:
+                continue
+            if len(snapshot["nodes"]) >= max_nodes:
+                break
+
+            entry = {
+                "label": next_label(),
+                "name": host,
+                "role": "peer",
+                "publicHost": host,
+                "info": info,
+                "status": result.get("status") or {},
+                "chainPeers": result.get("chainPeers") or [],
+                "dataPeers": result.get("dataPeers") or [],
+                "discovery": {"hop": hop, "reachedHost": host},
+            }
+            snapshot["nodes"][key] = entry
+            if node_id:
+                known_node_ids[node_id] = key
+            newly_added.append(entry)
+
+        frontier = set()
+        for entry in newly_added:
+            frontier |= clearnet_peer_hosts(entry)
+        frontier -= probed_hosts
+
+    snapshot["discovery"] = {
+        "enabled": True,
+        "hops": hops_run,
+        "maxHops": max_hops,
+        "maxNodes": max_nodes,
+        "apiPort": api_port,
+        "probedHostCount": len(probed_hosts),
+        "reachableNodeCount": reachable_count,
+        "queriedNodeCount": len(snapshot["nodes"]),
+        "frontierRemaining": sorted(frontier),
+    }
+    return snapshot
+
+
 def classify_group(host: str | None, chain: int, data: int) -> str:
     """Single-layer C/D tinting applies only to I2P peers, which cannot be
     correlated across chain and data. IP peers are correlatable by host, so they
@@ -266,6 +482,28 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
                 i2p_chain_to_label[i2p_chain] = peer_label
             if i2p_qdn:
                 i2p_qdn_to_label[i2p_qdn] = peer_label
+
+    # Bridge the data network's identity (an independent key from the chain identity)
+    # to a node label using any clearnet/known data endpoint where that data nodeId is
+    # observed. A node's data nodeId is the same across every data connection it makes,
+    # so once we've tied it to a known IP we can also merge its I2P data destination
+    # into that node's circle. A node that runs its data layer I2P-only never exposes
+    # such a bridge, so its data identity stays unlinkable — matching the privacy model.
+    data_nodeid_to_label: dict[str, str] = {}
+    for node in named_by_key.values():
+        for peer in node.get("dataPeers") or []:
+            data_node_id = peer.get("nodeId")
+            if not data_node_id:
+                continue
+            address = peer.get("address")
+            host = host_part(address)
+            if not host or host.endswith(".b32.i2p"):
+                continue  # only clearnet/known endpoints establish the bridge
+            label = label_by_chain_endpoint.get(address)
+            if not label and host in public_host_labels and len(public_host_labels[host]) == 1:
+                label = next(iter(public_host_labels[host]))
+            if label:
+                data_nodeid_to_label[data_node_id] = label
 
     graph_nodes: dict[str, dict[str, Any]] = {}
     extra_nodes: dict[str, dict[str, Any]] = {}
@@ -384,6 +622,12 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
         endpoint_label = label_by_chain_endpoint.get(address)
         if endpoint_label:
             return endpoint_label
+
+        # An I2P data destination merges into a node's circle when that node's data
+        # nodeId was also seen at a known clearnet endpoint (dual-homed data layer).
+        data_node_id = peer.get("nodeId")
+        if data_node_id and data_node_id in data_nodeid_to_label:
+            return data_nodeid_to_label[data_node_id]
 
         if host and host in i2p_qdn_to_label:
             return i2p_qdn_to_label[host]
@@ -1201,6 +1445,41 @@ def main() -> int:
         help="Query this node key (e.g. netcup) over localhost instead of SSH, for running on that host",
     )
     parser.add_argument(
+        "--no-discover",
+        action="store_true",
+        help="Only query the seed nodes; skip breadth-first probing of peers' public APIs",
+    )
+    parser.add_argument(
+        "--max-hops",
+        type=int,
+        default=4,
+        help="Maximum BFS depth out from the seed nodes when discovering peers",
+    )
+    parser.add_argument(
+        "--max-nodes",
+        type=int,
+        default=250,
+        help="Safety cap on the total number of nodes queried during discovery",
+    )
+    parser.add_argument(
+        "--api-port",
+        type=int,
+        default=API_PORT,
+        help="Public API port to probe on discovered peers",
+    )
+    parser.add_argument(
+        "--probe-timeout",
+        type=int,
+        default=5,
+        help="Per-endpoint curl timeout (seconds) when probing discovered peers",
+    )
+    parser.add_argument(
+        "--probe-workers",
+        type=int,
+        default=12,
+        help="Number of peers to probe concurrently during discovery",
+    )
+    parser.add_argument(
         "--from-snapshot",
         type=Path,
         default=None,
@@ -1245,7 +1524,16 @@ def main() -> int:
             print(f"Unknown --local-node {args.local_node!r}; known: {[n.key for n in NODE_CONFIGS]}", file=sys.stderr)
             return 2
 
-    snapshot = collect_nodes(args.timeout, configs)
+    snapshot = collect_topology(
+        args.timeout,
+        configs,
+        discover=not args.no_discover,
+        max_hops=args.max_hops,
+        max_nodes=args.max_nodes,
+        probe_timeout=args.probe_timeout,
+        probe_workers=args.probe_workers,
+        api_port=args.api_port,
+    )
     topology = build_topology(snapshot, args.max_extra_peers)
     snapshot["topology"] = topology
 
@@ -1254,6 +1542,13 @@ def main() -> int:
 
     print(f"Wrote snapshot: {snapshot_path}")
     print(f"Wrote SVG: {svg_path}")
+    discovery = snapshot.get("discovery") or {}
+    if discovery.get("enabled"):
+        print(
+            f"Discovery: queried {discovery.get('queriedNodeCount')} nodes "
+            f"({discovery.get('reachableNodeCount')} reachable) across "
+            f"{discovery.get('hops')} hop(s); probed {discovery.get('probedHostCount')} host(s)"
+        )
 
     if not args.no_qdn_data:
         qdn_resources = write_qdn_payload(

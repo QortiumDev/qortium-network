@@ -42,6 +42,25 @@ The publish helpers use the same local Previewnet account pattern as the other Q
 
 `tools/network-topology-data.py` is copied from the existing Previewnet topology map script and extended to emit QDN-ready data directories.
 
+### Peer discovery
+
+Collection seeds from the two VPS seed nodes (Netcup, Regxa) over SSH, then
+breadth-first probes every reachable peer's **public HTTP API** outward from
+there, deduping by host and by `nodeId` as it expands. Every node that answers
+becomes a first-class observer, so the map shows real non-seed links — including
+I2P↔I2P connections that touch a reachable node, and nodes several hops out —
+instead of every peer collapsing onto the two seeds.
+
+Only the voluntary, opt-out API is read (`/admin/info`, `/admin/status`,
+`/peers`, `/peers/data`, read-only). An **I2P-only node has no IP in any peer
+list**, so there is nothing to dial: it stays an observed-only leaf and remains
+private by construction. A missing edge therefore means *unreachable/unknown*,
+not *not connected*. The involuntary P2P gossip surface is never used.
+
+Relevant flags: `--no-discover` (seeds only), `--max-hops` (default 4),
+`--max-nodes` (default 250), `--api-port` (default 24891), `--probe-timeout`,
+`--probe-workers`.
+
 Default QDN identities:
 
 - `APP/Network/Network`
