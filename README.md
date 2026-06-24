@@ -61,6 +61,24 @@ Relevant flags: `--no-discover` (seeds only), `--max-hops` (default 4),
 `--max-nodes` (default 250), `--api-port` (default 24891), `--probe-timeout`,
 `--probe-workers`.
 
+### I2P mesh from peer-exchange gossip
+
+I2P-only nodes have no clearnet API to probe, so discovery can't reach them — but
+the seeds *do* receive their peer-exchange gossip. With the Core `recordPeerExchange`
+setting enabled, each seed appends every received PEERS message to
+`~/qortium/preview/peer-exchange.jsonl`. The collector reads that file over the same
+SSH/local channel, keeps the **latest I2P record per (sender, layer)** within a recent
+window, and draws **I2P↔I2P edges** between each I2P node and its advertised peers —
+the mesh interior the seeds' own `/peers` cannot see.
+
+This is discovery-level data (the same peer addresses any I2P node already shares),
+not live adjacency, so edges are approximate. Chain and data destinations use
+independent identities and are never merged (the blue/orange separation is preserved).
+Gossip edges carry `source: "gossip"` in their samples.
+
+Flags: `--no-gossip` (skip it), `--gossip-window-hours` (default 6),
+`--gossip-tail-lines` (default 100000).
+
 Default QDN identities:
 
 - `APP/Network/Network`
