@@ -13,6 +13,9 @@
 //   QORTIUM_NETWORK_MAX_NODES        cap on total nodes queried (tool default 250)
 //   QORTIUM_NETWORK_PROBE_TIMEOUT    per-endpoint timeout seconds when probing peers (tool default 5)
 //   QORTIUM_NETWORK_PROBE_WORKERS    peers probed concurrently (tool default 12)
+//   QORTIUM_NETWORK_GOSSIP           set to "0"/"false" to skip peer-exchange gossip (default on)
+//   QORTIUM_NETWORK_GOSSIP_WINDOW_HOURS  only use gossip newer than this (tool default 6)
+//   QORTIUM_NETWORK_GOSSIP_TAIL_LINES    trailing JSONL lines scanned per seed (tool default 100000)
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
@@ -54,6 +57,21 @@ if (discover === '0' || discover?.toLowerCase() === 'false') {
     ['MAX_NODES', '--max-nodes'],
     ['PROBE_TIMEOUT', '--probe-timeout'],
     ['PROBE_WORKERS', '--probe-workers'],
+  ]) {
+    const value = readEnv(name);
+    if (value) {
+      args.push(flag, value);
+    }
+  }
+}
+
+const gossip = readEnv('GOSSIP');
+if (gossip === '0' || gossip?.toLowerCase() === 'false') {
+  args.push('--no-gossip');
+} else {
+  for (const [name, flag] of [
+    ['GOSSIP_WINDOW_HOURS', '--gossip-window-hours'],
+    ['GOSSIP_TAIL_LINES', '--gossip-tail-lines'],
   ]) {
     const value = readEnv(name);
     if (value) {

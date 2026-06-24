@@ -89,6 +89,9 @@ class NodeConfig:
     public_host: str | None = None
     ssh: tuple[str, ...] | None = None
     cwd: Path | None = None
+    # Path (relative to the node operator's home) of the recordPeerExchange JSONL,
+    # read over the same SSH/local channel to surface I2P↔I2P gossip edges.
+    peer_exchange_path: str = "qortium/preview/peer-exchange.jsonl"
 
 
 NODE_CONFIGS = [
@@ -300,6 +303,100 @@ def edge_kind(layer: str, transport: str | None) -> str:
     return "I2P_DATA" if normalized == "I2P" else "IP_DATA"
 
 
+def parse_iso_timestamp(value: Any) -> dt.datetime | None:
+    """Parse an ISO-8601 timestamp (with trailing Z and nanosecond fractions) to UTC."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip().replace("Z", "+00:00")
+    # datetime.fromisoformat accepts at most microseconds; trim longer fractions.
+    if "." in text:
+        head, rest = text.split(".", 1)
+        frac = ""
+        for char in rest:
+            if char.isdigit():
+                frac += char
+            else:
+                break
+        tail = rest[len(frac):]
+        text = f"{head}.{frac[:6]}{tail}"
+    try:
+        parsed = dt.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def fetch_peer_exchange_lines(node: NodeConfig, tail_lines: int, timeout: int) -> list[str]:
+    """Read recent I2P peer-exchange records from a node's recordPeerExchange JSONL.
+
+    Filtering to I2P-sender lines happens remotely (grep) so only the relevant slice
+    crosses the wire. Missing file / no matches yield an empty list, never an error."""
+    quoted = shell_quote(node.peer_exchange_path)
+    command = f"tail -n {int(tail_lines)} {quoted} 2>/dev/null | grep -F '\"transport\":\"I2P\"' || true"
+    if node.ssh:
+        output = run_command((*node.ssh, command), node.cwd, timeout + 30)
+    else:
+        # Local node: the JSONL lives under the operator's home, not the script's cwd.
+        home_command = f'cd "$HOME" && {command}'
+        output = run_command(["bash", "-c", home_command], None, timeout + 30)
+    return [line for line in output.splitlines() if line.strip()]
+
+
+def collect_peer_exchange(
+    configs: list[NodeConfig],
+    *,
+    tail_lines: int,
+    window_hours: float,
+    timeout: int,
+    now: dt.datetime,
+) -> list[dict[str, Any]]:
+    """Gather recent I2P gossip from each seed's JSONL, keeping the latest record per
+    (I2P sender, layer). Each record is an I2P node's advertised peer list — the
+    adjacency the seeds' own /peers cannot see."""
+    cutoff = now - dt.timedelta(hours=window_hours)
+    latest: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for node in configs:
+        try:
+            lines = fetch_peer_exchange_lines(node, tail_lines, timeout)
+        except Exception:  # noqa: BLE001 - a missing/unreadable file just means no gossip
+            continue
+        for line in lines:
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            from_host = host_part(record.get("fromPeer"))
+            layer = record.get("layer")
+            if not from_host or not from_host.endswith(".b32.i2p") or layer not in ("chain", "data"):
+                continue
+            when = parse_iso_timestamp(record.get("at"))
+            if when is None or when < cutoff:
+                continue
+            key = (from_host, layer)
+            current = latest.get(key)
+            if current is None or when > current["_when"]:
+                latest[key] = {
+                    "_when": when,
+                    "at": record.get("at"),
+                    "layer": layer,
+                    "fromPeer": record.get("fromPeer"),
+                    "fromNodeId": record.get("fromNodeId"),
+                    "transport": record.get("transport"),
+                    "peers": [p for p in (record.get("peers") or []) if isinstance(p, str)],
+                    "recordedBy": node.key,
+                }
+
+    records = []
+    for value in latest.values():
+        value.pop("_when", None)
+        records.append(value)
+    records.sort(key=lambda r: (r.get("layer") or "", r.get("fromPeer") or ""))
+    return records
+
+
 def collect_nodes(timeout: int, configs: list[NodeConfig] | None = None) -> dict[str, Any]:
     snapshot: dict[str, Any] = {
         "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -337,6 +434,9 @@ def collect_topology(
     probe_timeout: int,
     probe_workers: int,
     api_port: int,
+    collect_gossip: bool = True,
+    gossip_tail_lines: int = 100000,
+    gossip_window_hours: float = 6.0,
 ) -> dict[str, Any]:
     """Seed from the operator VPS nodes, then breadth-first probe every reachable
     peer's public API outward, deduping by host and by nodeId as we expand.
@@ -344,8 +444,23 @@ def collect_topology(
     Each reachable node becomes a first-class observer: its own /peers list
     contributes edges, so non-seed links (including I2P↔I2P touching a reachable
     node) appear instead of everything collapsing onto the two seeds. I2P-only and
-    API-closed nodes are simply never reached and remain observed-only leaves."""
+    API-closed nodes are simply never reached and remain observed-only leaves.
+
+    Additionally read each seed's recordPeerExchange JSONL: an I2P node's advertised
+    peer list is the I2P↔I2P adjacency the seeds' /peers cannot see (discovery-level
+    gossip, the same data any I2P peer already receives)."""
     snapshot = collect_nodes(timeout, seed_configs)
+
+    if collect_gossip:
+        snapshot["peerExchange"] = collect_peer_exchange(
+            seed_configs if seed_configs is not None else NODE_CONFIGS,
+            tail_lines=gossip_tail_lines,
+            window_hours=gossip_window_hours,
+            timeout=timeout,
+            now=dt.datetime.now(dt.timezone.utc),
+        )
+    else:
+        snapshot["peerExchange"] = []
 
     used_labels = {entry["label"] for entry in snapshot["nodes"].values()}
     probed_hosts: set[str] = set()
@@ -608,6 +723,7 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
                 "transport": peer.get("transport"),
                 "version": peer.get("version"),
                 "nodeId": peer.get("nodeId"),
+                "source": peer.get("source"),
             }
         )
         for node_id in (a, b):
@@ -676,6 +792,46 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
             target = resolve_data_target(peer, label)
             if target:
                 add_edge(label, target, edge_kind("data", peer.get("transport")), key, peer, "data")
+
+    # Gossip-derived I2P edges. Each recordPeerExchange entry is an I2P node's own
+    # advertised peer list (chain or data layer). Transport-scoped gossip from an I2P
+    # node is I2P-only, so we draw I2P_CHAIN / I2P_DATA edges between the reporter and
+    # each advertised peer — revealing the I2P↔I2P mesh the seeds' /peers cannot see.
+    # Chain and data destinations stay separate (independent identities), so a node's
+    # blue (chain) and orange (data) circles are never merged.
+    def resolve_i2p_gossip_node(b32_host: str, layer: str, observer_label: str) -> str:
+        if layer == "chain" and b32_host in i2p_chain_to_label:
+            return i2p_chain_to_label[b32_host]
+        if layer == "data" and b32_host in i2p_qdn_to_label:
+            return i2p_qdn_to_label[b32_host]
+        fake_peer = {"address": b32_host}
+        extra_id = make_extra_id(b32_host, fake_peer)
+        return add_extra(extra_id, b32_host, fake_peer, observer_label)
+
+    for record in snapshot.get("peerExchange") or []:
+        layer = record.get("layer")
+        if layer not in ("chain", "data"):
+            continue
+        from_host = host_part(record.get("fromPeer"))
+        if not from_host or not from_host.endswith(".b32.i2p"):
+            continue
+        recorded_by = record.get("recordedBy")
+        observer_label = (named_by_key.get(recorded_by) or {}).get("label") or recorded_by or ""
+        kind = "I2P_CHAIN" if layer == "chain" else "I2P_DATA"
+        from_label = resolve_i2p_gossip_node(from_host, layer, observer_label)
+        for advertised in record.get("peers") or []:
+            peer_host = host_part(advertised)
+            if not peer_host or not peer_host.endswith(".b32.i2p") or peer_host == from_host:
+                continue
+            to_label = resolve_i2p_gossip_node(peer_host, layer, observer_label)
+            sample = {
+                "reportedBy": recorded_by,
+                "address": advertised,
+                "transport": "I2P",
+                "source": "gossip",
+                "nodeId": record.get("fromNodeId"),
+            }
+            add_edge(from_label, to_label, kind, recorded_by, sample, layer)
 
     # Keep the diagram readable if the seed nodes are connected to many outside peers.
     if max_extra_peers >= 0 and len(extra_nodes) > max_extra_peers:
@@ -1233,6 +1389,7 @@ def summarize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         "graphNodeCount": len(graph_nodes),
         "edgeCount": len(edges),
         "edgeCountsByKind": edge_counts_by_kind,
+        "gossipRecordCount": len(snapshot.get("peerExchange") or []),
         "peerVersionCounts": dict(sorted(version_counts.items())),
         "hasErrors": bool(errors),
         "errors": errors,
@@ -1501,6 +1658,23 @@ def main() -> int:
         help="Number of peers to probe concurrently during discovery",
     )
     parser.add_argument(
+        "--no-gossip",
+        action="store_true",
+        help="Skip reading the seeds' peer-exchange JSONL (no gossip-derived I2P↔I2P edges)",
+    )
+    parser.add_argument(
+        "--gossip-window-hours",
+        type=float,
+        default=6.0,
+        help="Only use peer-exchange records newer than this many hours",
+    )
+    parser.add_argument(
+        "--gossip-tail-lines",
+        type=int,
+        default=100000,
+        help="How many trailing lines of each seed's peer-exchange JSONL to scan",
+    )
+    parser.add_argument(
         "--from-snapshot",
         type=Path,
         default=None,
@@ -1554,6 +1728,9 @@ def main() -> int:
         probe_timeout=args.probe_timeout,
         probe_workers=args.probe_workers,
         api_port=args.api_port,
+        collect_gossip=not args.no_gossip,
+        gossip_tail_lines=args.gossip_tail_lines,
+        gossip_window_hours=args.gossip_window_hours,
     )
     topology = build_topology(snapshot, args.max_extra_peers)
     snapshot["topology"] = topology
@@ -1570,6 +1747,11 @@ def main() -> int:
             f"({discovery.get('reachableNodeCount')} reachable) across "
             f"{discovery.get('hops')} hop(s); probed {discovery.get('probedHostCount')} host(s)"
         )
+    gossip_records = snapshot.get("peerExchange") or []
+    if gossip_records:
+        chain_g = sum(1 for r in gossip_records if r.get("layer") == "chain")
+        data_g = len(gossip_records) - chain_g
+        print(f"Gossip: {len(gossip_records)} I2P peer-exchange records ({chain_g} chain, {data_g} data)")
 
     if not args.no_qdn_data:
         qdn_resources = write_qdn_payload(
