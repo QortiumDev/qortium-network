@@ -212,6 +212,19 @@ def collect_nodes(timeout: int, configs: list[NodeConfig] | None = None) -> dict
     return snapshot
 
 
+def classify_group(host: str | None, chain: int, data: int) -> str:
+    """Single-layer C/D tinting applies only to I2P peers, which cannot be
+    correlated across chain and data. IP peers are correlatable by host, so they
+    are always "both" (P) — a chain=0 or data=0 there is a real connectivity gap,
+    not an unmergeable identity."""
+    is_i2p = bool(host) and host.endswith(".b32.i2p")
+    if is_i2p and chain and not data:
+        return "chain"
+    if is_i2p and data and not chain:
+        return "data"
+    return "both"
+
+
 def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, Any]:
     named_by_key = snapshot["nodes"]
     label_by_key = {key: node["label"] for key, node in named_by_key.items()}
@@ -263,13 +276,8 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
         status = node.get("status") or {}
         op_chain = status.get("numberOfConnections", len(node.get("chainPeers") or []))
         op_data = status.get("numberOfDataConnections", len(node.get("dataPeers") or []))
-        # Group operators by their own connection mix, same as any other node.
-        if op_chain and not op_data:
-            op_group = "chain"
-        elif op_data and not op_chain:
-            op_group = "data"
-        else:
-            op_group = "both"
+        # Group operators the same way as any other node (IP -> always both).
+        op_group = classify_group(node.get("publicHost"), op_chain, op_data)
         graph_nodes[label] = {
             "id": label,
             "label": label,
@@ -423,12 +431,8 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
         chain = int(value.get("chainCount") or 0)
         data = int(value.get("dataCount") or 0)
         value["peerCount"] = chain + data
-        if chain and not data:
-            prefix, group = "C", "chain"
-        elif data and not chain:
-            prefix, group = "D", "data"
-        else:
-            prefix, group = "P", "both"
+        group = classify_group(value.get("host"), chain, data)
+        prefix = {"chain": "C", "data": "D", "both": "P"}[group]
         category_counters[prefix] += 1
         value["label"] = f"{prefix}{category_counters[prefix]}"
         value["group"] = group
