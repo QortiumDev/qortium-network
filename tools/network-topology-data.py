@@ -505,6 +505,25 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
             if label:
                 data_nodeid_to_label[data_node_id] = label
 
+    # Collapse the several addresses a single node is observed under — multiple IPs,
+    # or an IP and an I2P chain destination — into one canonical host, keyed by the
+    # shared chain nodeId. Without this, a node seen at two IPs (or dual-homed over
+    # IP+I2P) is drawn as two separate observed peers. Only nodes that genuinely
+    # expose more than one address are affected; single-address peers are untouched.
+    hosts_by_chain_node_id: dict[str, set[str]] = {}
+    for node in named_by_key.values():
+        for peer in node.get("chainPeers") or []:
+            chain_node_id = peer.get("nodeId")
+            host = host_part(peer.get("address"))
+            if chain_node_id and host:
+                hosts_by_chain_node_id.setdefault(chain_node_id, set()).add(host)
+    host_canonical: dict[str, str] = {}
+    for hosts in hosts_by_chain_node_id.values():
+        if len(hosts) > 1:
+            canonical = sorted(hosts)[0]
+            for host in hosts:
+                host_canonical[host] = canonical
+
     graph_nodes: dict[str, dict[str, Any]] = {}
     extra_nodes: dict[str, dict[str, Any]] = {}
     edges: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -613,6 +632,7 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
         if host and host in i2p_chain_to_label:
             return i2p_chain_to_label[host]
 
+        host = host_canonical.get(host, host) if host else host
         extra_id = make_extra_id(host, peer)
         return add_extra(extra_id, host, peer, current_label)
 
@@ -638,6 +658,7 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
         if host and host in public_host_labels and len(public_host_labels[host]) == 1:
             return next(iter(public_host_labels[host]))
 
+        host = host_canonical.get(host, host) if host else host
         extra_id = make_extra_id(host, peer)
         return add_extra(extra_id, host, peer, current_label)
 
