@@ -528,6 +528,18 @@ input {
   border-radius: var(--qn-radius-sm);
   min-height: 0;
   overflow: hidden;
+  position: relative;
+}
+
+.map-loading {
+  align-items: center;
+  color: var(--qn-color-muted);
+  display: flex;
+  font-size: var(--qn-text-small);
+  inset: 0;
+  justify-content: center;
+  pointer-events: none;
+  position: absolute;
 }
 
 .map-surface svg {
