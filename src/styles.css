@@ -29,8 +29,9 @@
   --qn-color-border-strong: #b8aea0;
   --qn-color-border-subtle: #e3ddd3;
   --qn-color-text: #18201f;
-  --qn-color-muted: #67716f;
+  --qn-color-muted: #5a6664;
   --qn-color-warning: #8f641b;
+  --qn-color-warning-contrast: #2f2100;
   --qn-color-warning-bg: #fff8e9;
   --qn-color-warning-border: #d7b96d;
 
@@ -72,6 +73,7 @@
   --qn-color-text: #f4f0e8;
   --qn-color-muted: #a9b6b6;
   --qn-color-warning: #e4c06d;
+  --qn-color-warning-contrast: #e4c06d;
   --qn-color-warning-bg: #2b2313;
   --qn-color-warning-border: #85692b;
 
@@ -103,7 +105,7 @@
 :root[data-accent='blue'] {
   --qn-color-accent: #2a79f3;
   --qn-color-accent-hover: #1e5ec3;
-  --qn-color-accent-text: #ffffff;
+  --qn-color-accent-text: #0d0d1e; /* was #ffffff — 4.10:1 FAIL; #0d0d1e → 4.69:1 PASS */
   --qn-color-accent-ring: rgb(42 121 243 / 20%);
   --qn-color-accent-soft: rgb(42 121 243 / 10%);
   --qn-color-accent-glow: rgb(42 121 243 / 22%);
@@ -112,7 +114,7 @@
 :root[data-accent='orange'] {
   --qn-color-accent: #de8b23;
   --qn-color-accent-hover: #bf6e0f;
-  --qn-color-accent-text: #ffffff;
+  --qn-color-accent-text: #1e1400; /* was #ffffff — 2.68:1 FAIL; #1e1400 → 6.77:1 PASS */
   --qn-color-accent-ring: rgb(222 139 35 / 20%);
   --qn-color-accent-soft: rgb(222 139 35 / 10%);
   --qn-color-accent-glow: rgb(222 139 35 / 22%);
@@ -139,7 +141,7 @@
 :root[data-accent='teal'] {
   --qn-color-accent: #17a398;
   --qn-color-accent-hover: #12857a;
-  --qn-color-accent-text: #ffffff;
+  --qn-color-accent-text: #001311; /* was #ffffff — 3.12:1 FAIL; #001311 → 6.11:1 PASS */
   --qn-color-accent-ring: rgb(23 163 152 / 20%);
   --qn-color-accent-soft: rgb(23 163 152 / 10%);
   --qn-color-accent-glow: rgb(23 163 152 / 22%);
@@ -148,7 +150,7 @@
 :root[data-accent='cyan'] {
   --qn-color-accent: #1298d8;
   --qn-color-accent-hover: #0f79aa;
-  --qn-color-accent-text: #ffffff;
+  --qn-color-accent-text: #001320; /* was #ffffff — 3.23:1 FAIL; #001320 → 5.84:1 PASS */
   --qn-color-accent-ring: rgb(18 152 216 / 20%);
   --qn-color-accent-soft: rgb(18 152 216 / 10%);
   --qn-color-accent-glow: rgb(18 152 216 / 22%);
@@ -157,7 +159,7 @@
 :root[data-accent='pink'] {
   --qn-color-accent: #d43f86;
   --qn-color-accent-hover: #bd3673;
-  --qn-color-accent-text: #ffffff;
+  --qn-color-accent-text: #190010; /* was #ffffff — 4.33:1 FAIL; #190010 → 4.63:1 PASS */
   --qn-color-accent-ring: rgb(212 63 134 / 20%);
   --qn-color-accent-soft: rgb(212 63 134 / 10%);
   --qn-color-accent-glow: rgb(212 63 134 / 22%);
@@ -342,20 +344,20 @@ input {
 
 .top-bar__mark {
   align-items: center;
-  background: var(--qn-color-accent-soft);
-  border: 1px solid var(--qn-color-accent-ring);
-  border-radius: var(--qn-radius-md);
   display: inline-flex;
   flex: 0 0 auto;
-  height: 42px;
   justify-content: center;
-  width: 42px;
 }
 
 .top-bar__mark img {
   display: block;
-  height: 34px;
-  width: 34px;
+  height: 44px;
+  object-fit: contain;
+  width: 44px;
+}
+
+:root[data-theme='light'] .top-bar__mark img {
+  filter: invert(1);
 }
 
 .top-bar h1 {
@@ -401,8 +403,15 @@ input {
 }
 
 .icon-button:disabled {
+  /* Class 2 fix: opacity-fade dropped the primary button (coloured bg + white text) to
+     2.65:1 in light theme (e.g. white on mid-green faded over cream page). Instead keep
+     full opacity and swap to neutral surface colours so text stays legible at ≥ 4.5:1
+     in both themes while the disabled visual cue comes from desaturation + cursor. */
+  background: var(--qn-color-surface);
+  border-color: var(--qn-color-border);
+  color: var(--qn-color-muted);
   cursor: progress;
-  opacity: 0.65;
+  opacity: 1;
 }
 
 .controls-button {
@@ -439,7 +448,7 @@ input {
   background: var(--qn-color-warning-bg);
   border: 1px solid var(--qn-color-warning-border);
   border-radius: var(--qn-radius-sm);
-  color: var(--qn-color-warning);
+  color: var(--qn-color-warning-contrast);
   flex: 0 0 auto;
   padding: 8px 10px;
 }

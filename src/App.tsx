@@ -357,8 +357,8 @@ export function App() {
     <main className="app-shell">
       <header className="top-bar">
         <div className="top-bar__brand">
-          <span className="top-bar__mark" aria-hidden="true">
-            <img alt="" src={networkIconUrl} />
+          <span className="top-bar__mark">
+            <img src={networkIconUrl} alt="" aria-hidden="true" />
           </span>
           <div className="top-bar__heading">
             <h1>Qortium Previewnet live topology</h1>
