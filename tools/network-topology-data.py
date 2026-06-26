@@ -979,6 +979,12 @@ def layout_graph(
     cx, cy = width / 2, (top + bottom) / 2
     # Chain-only peers settle on the left, data-only on the right, both-type
     # peers fan toward the top/bottom from the center, operators in the middle.
+    #
+    # TODO(layout-parity): the app layout (positionNodes in src/graphModel.ts) has
+    # moved ahead of this one — "both"/P peers there lean left/right by their I2P
+    # chain/data edge balance (IP-only peers stay central) and same-country peers
+    # attract into neighborhoods. Mirror those two forces here so the static
+    # preview SVG matches the live viewer.
     group_of = {node_id: (graph_nodes[node_id].get("group") or "operator") for node_id in ids}
     chain_x = left + (right - left) * 0.15
     data_x = right - (right - left) * 0.15

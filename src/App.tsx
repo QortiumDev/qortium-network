@@ -103,11 +103,14 @@ function NodeGlyph({
       : 'var(--qn-color-node-stroke)';
   const fontSize = Math.max(10, Math.min(30, node.radius * (node.label.length <= 2 ? 0.72 : 0.5)));
   const flag = flagUrl(node.country);
-  // A small circular flag badge straddling the lower-right rim. Sits on the rim
-  // (45°) so it never covers the centered label.
-  const badgeRadius = Math.max(7, Math.min(13, node.radius * 0.4));
-  const badgeX = node.x + Math.cos(Math.PI / 4) * node.radius;
-  const badgeY = node.y + Math.sin(Math.PI / 4) * node.radius;
+  // Flagged (IP/P) nodes render the flag as the disc and move their P#/N/R label
+  // into a small pill on the lower-right rim (45°). Flag-less nodes (C/D, or an
+  // IP that didn't resolve) keep the label centered as before.
+  const badgeFont = Math.max(8.5, Math.min(13, node.radius * 0.5));
+  const badgeH = badgeFont + 6;
+  const badgeW = Math.max(badgeH, node.label.length * badgeFont * 0.62 + 8);
+  const badgeCx = node.x + Math.cos(Math.PI / 4) * node.radius;
+  const badgeCy = node.y + Math.sin(Math.PI / 4) * node.radius;
   // The country name is revealed only for the selected/centered node.
   const activeCountry = active ? countryName(node.country) : undefined;
 
@@ -127,29 +130,44 @@ function NodeGlyph({
       onPointerDown={(event) => event.stopPropagation()}
       style={{ '--node-fill': fill, '--node-stroke': stroke } as React.CSSProperties}
     >
-      <circle cx={node.x} cy={node.y} r={node.radius} strokeWidth={active ? 4.2 : 2.8} />
-      <text
-        x={node.x}
-        y={node.y + fontSize * 0.34}
-        className="node-label"
-        fontSize={`${fontSize}px`}
-        pointerEvents="none"
-      >
-        {node.label}
-      </text>
       {flag ? (
-        <g className="node-flag" pointerEvents="none">
+        <>
           <title>{node.country}</title>
-          <circle className="node-flag__ring" cx={badgeX} cy={badgeY} r={badgeRadius + 1.4} />
           <image
+            className="node-flag-disc"
             href={flag}
-            x={badgeX - badgeRadius}
-            y={badgeY - badgeRadius}
-            width={badgeRadius * 2}
-            height={badgeRadius * 2}
+            x={node.x - node.radius}
+            y={node.y - node.radius}
+            width={node.radius * 2}
+            height={node.radius * 2}
+            pointerEvents="none"
           />
+          <circle className="node-ring" cx={node.x} cy={node.y} r={node.radius} fill="none" strokeWidth={active ? 4.2 : 2.8} />
+        </>
+      ) : (
+        <circle cx={node.x} cy={node.y} r={node.radius} strokeWidth={active ? 4.2 : 2.8} />
+      )}
+
+      {flag ? (
+        <g className="node-badge" pointerEvents="none">
+          <rect
+            className="node-badge__bg"
+            x={badgeCx - badgeW / 2}
+            y={badgeCy - badgeH / 2}
+            width={badgeW}
+            height={badgeH}
+            rx={badgeH / 2}
+          />
+          <text x={badgeCx} y={badgeCy + badgeFont * 0.34} className="node-badge__label" fontSize={`${badgeFont}px`}>
+            {node.label}
+          </text>
         </g>
-      ) : null}
+      ) : (
+        <text x={node.x} y={node.y + fontSize * 0.34} className="node-label" fontSize={`${fontSize}px`} pointerEvents="none">
+          {node.label}
+        </text>
+      )}
+
       {activeCountry ? (
         <text x={node.x} y={node.y + node.radius + 18} className="node-country" pointerEvents="none">
           {activeCountry}
