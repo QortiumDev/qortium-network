@@ -671,8 +671,10 @@ input {
 /* Flagged nodes: the flag SVG (already circular) is the disc, with a stroke-only
    ring drawn on top for the border + active/connected highlight. The more
    specific selector wins over `.graph-node circle` so the ring stays fill-less. */
+/* `transparent` (unlike `none`) is a painted fill, so the whole disc area over
+   the flag image stays clickable while remaining see-through. */
 .graph-node .node-ring {
-  fill: none;
+  fill: transparent;
   stroke: var(--node-stroke);
 }
 

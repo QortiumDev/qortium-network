@@ -149,7 +149,7 @@ function NodeGlyph({
       )}
 
       {flag ? (
-        <g className="node-badge" pointerEvents="none">
+        <g className="node-badge">
           <rect
             className="node-badge__bg"
             x={badgeCx - badgeW / 2}
