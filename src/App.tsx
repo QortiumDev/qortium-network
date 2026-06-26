@@ -22,6 +22,7 @@ import {
   parseNetworkSnapshot,
 } from './graphModel';
 import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDisplaySettings } from './displaySettings';
+import { flagUrl } from './flags';
 import networkIconUrl from './assets/brand/qortium-network-icon.png';
 import { qdnRequest } from './qdnRequest';
 import { sampleSnapshot } from './sampleData';
@@ -95,6 +96,12 @@ function NodeGlyph({
       ? 'var(--qn-color-accent)'
       : 'var(--qn-color-node-stroke)';
   const fontSize = Math.max(10, Math.min(30, node.radius * (node.label.length <= 2 ? 0.72 : 0.5)));
+  const flag = flagUrl(node.country);
+  // A small circular flag badge straddling the lower-right rim. Sits on the rim
+  // (45°) so it never covers the centered label.
+  const badgeRadius = Math.max(7, Math.min(13, node.radius * 0.4));
+  const badgeX = node.x + Math.cos(Math.PI / 4) * node.radius;
+  const badgeY = node.y + Math.sin(Math.PI / 4) * node.radius;
 
   return (
     <g
@@ -122,6 +129,19 @@ function NodeGlyph({
       >
         {node.label}
       </text>
+      {flag ? (
+        <g className="node-flag" pointerEvents="none">
+          <title>{node.country}</title>
+          <circle className="node-flag__ring" cx={badgeX} cy={badgeY} r={badgeRadius + 1.4} />
+          <image
+            href={flag}
+            x={badgeX - badgeRadius}
+            y={badgeY - badgeRadius}
+            width={badgeRadius * 2}
+            height={badgeRadius * 2}
+          />
+        </g>
+      ) : null}
     </g>
   );
 }

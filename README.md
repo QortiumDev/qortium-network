@@ -79,6 +79,22 @@ Gossip edges carry `source: "gossip"` in their samples.
 Flags: `--no-gossip` (skip it), `--gossip-window-hours` (default 6),
 `--gossip-tail-lines` (default 100000).
 
+### Country flags
+
+Each node with a clearnet IPv4 host is tagged with an ISO 3166-1 alpha-2
+`country`, which the viewer renders as a small circular flag on the node. The
+lookup is fully offline: `tools/network-topology-data.py` reads a compact,
+vendored IPv4→country table (`tools/geoip-ipv4-country.bin.gz`, ~0.7 MB) built
+from the public-domain `@ip-location-db/geo-whois-asn-country` dataset. **No
+peer IP ever leaves the machine.** I2P-only nodes have no IP and stay
+flag-less. Flag SVGs are vendored in `src/assets/flags/` (from `circle-flags`).
+
+Refresh the vendored table when the source data ages:
+
+```bash
+python3 tools/build_geoip_ipv4.py        # download fresh source, rebuild
+```
+
 Default QDN identities:
 
 - `APP/Network/Network`

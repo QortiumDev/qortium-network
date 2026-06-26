@@ -646,6 +646,15 @@ input {
   text-anchor: middle;
 }
 
+/* Circular country-flag badge on the node rim. The more specific selector wins
+   over `.graph-node circle` so the ring keeps its own surface fill / no shadow. */
+.graph-node .node-flag__ring {
+  fill: var(--qn-color-surface);
+  stroke: var(--qn-color-node-stroke);
+  stroke-width: 1px;
+  filter: drop-shadow(0 1px 2px rgb(15 23 42 / 0.22));
+}
+
 .detail-grid {
   display: grid;
   gap: 4px 10px;

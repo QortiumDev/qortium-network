@@ -32,16 +32,21 @@ It also writes QDN-ready data directories for later publication:
 from __future__ import annotations
 
 import argparse
+import array
+import bisect
 import concurrent.futures
 import datetime as dt
+import gzip
 import ipaddress
 import json
 import math
 import shutil
 import string
+import struct
 import subprocess
 import sys
 from dataclasses import dataclass, replace as dataclass_replace
+from functools import lru_cache
 from html import escape
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -78,6 +83,71 @@ VERSION_COLORS = {
     "behind2": "#dc2626",  # two versions behind
     "older": "#9ca3af",    # older than the three newest, or no version reported
 }
+
+# Compact, vendored IPv4 -> ISO 3166-1 alpha-2 table (CC0 source), built by
+# tools/build_geoip_ipv4.py. Lookups are fully offline: no third-party calls and
+# no peer IP ever leaves this machine. See that script for the binary format.
+GEOIP_IPV4_PATH = Path(__file__).resolve().parent / "geoip-ipv4-country.bin.gz"
+GEOIP_MAGIC = b"QGIP1\n"
+
+
+class GeoIPv4Table:
+    """Partition of the IPv4 space into (start, country) runs for bisect lookup."""
+
+    def __init__(self, starts: array.array, cidx: array.array, codes: list[str]) -> None:
+        self._starts = starts
+        self._cidx = cidx
+        self._codes = codes
+
+    def country(self, ip_int: int) -> str | None:
+        index = bisect.bisect_right(self._starts, ip_int) - 1
+        if index < 0:
+            return None
+        return self._codes[self._cidx[index]] or None
+
+
+@lru_cache(maxsize=1)
+def load_geoip_ipv4() -> GeoIPv4Table | None:
+    try:
+        blob = gzip.decompress(GEOIP_IPV4_PATH.read_bytes())
+    except FileNotFoundError:
+        print(f"warning: GeoIP DB not found at {GEOIP_IPV4_PATH}; flags disabled", file=sys.stderr)
+        return None
+    if blob[:6] != GEOIP_MAGIC:
+        print(f"warning: unrecognized GeoIP DB at {GEOIP_IPV4_PATH}; flags disabled", file=sys.stderr)
+        return None
+
+    offset = 6
+    (num_codes,) = struct.unpack_from("<H", blob, offset)
+    offset += 2
+    codes = [blob[offset + i * 2 : offset + i * 2 + 2].rstrip(b"\x00").decode("ascii") for i in range(num_codes)]
+    offset += num_codes * 2
+    (num_entries,) = struct.unpack_from("<I", blob, offset)
+    offset += 4
+    starts = array.array("I")
+    starts.frombytes(blob[offset : offset + num_entries * 4])
+    offset += num_entries * 4
+    if sys.byteorder == "big":
+        starts.byteswap()
+    cidx = array.array("B")
+    cidx.frombytes(blob[offset : offset + num_entries])
+    return GeoIPv4Table(starts, cidx, codes)
+
+
+def country_for_host(host: str | None) -> str | None:
+    """ISO alpha-2 country for a literal IPv4 host, or None (hostnames/IPv6/I2P)."""
+    if not host:
+        return None
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    if address.version != 4:
+        return None
+    table = load_geoip_ipv4()
+    if table is None:
+        return None
+    return table.country(int(address))
 
 
 @dataclass(frozen=True)
@@ -870,6 +940,9 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
 
     for value in graph_nodes.values():
         value["peerCount"] = int(value.get("chainCount") or 0) + int(value.get("dataCount") or 0)
+        country = country_for_host(value.get("host"))
+        if country:
+            value["country"] = country
 
     return {
         "namedLabels": label_by_key,

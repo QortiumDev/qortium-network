@@ -44,6 +44,7 @@ export type EdgeSample = {
 export type TopologyNode = {
   chainCount?: number;
   connectedTo?: string[];
+  country?: string;
   dataCount?: number;
   group?: string;
   height?: number;
