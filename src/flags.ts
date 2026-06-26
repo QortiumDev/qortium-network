@@ -23,3 +23,24 @@ export function flagUrl(country: string | null | undefined): string | undefined 
 
   return flagUrlByCode[country.toLowerCase()];
 }
+
+const regionNames =
+  typeof Intl !== 'undefined' && 'DisplayNames' in Intl
+    ? new Intl.DisplayNames(['en'], { type: 'region' })
+    : undefined;
+
+// Human-readable country name for an ISO alpha-2 code (e.g. "US" -> "United
+// States"). Falls back to the upper-cased code when the runtime can't resolve it.
+export function countryName(country: string | null | undefined): string | undefined {
+  if (!country) {
+    return undefined;
+  }
+
+  const code = country.toUpperCase();
+
+  try {
+    return regionNames?.of(code) ?? code;
+  } catch {
+    return code;
+  }
+}

@@ -2,7 +2,7 @@ import {
   Activity,
   ChevronLeft,
   ChevronRight,
-  Database,
+  Globe,
   History,
   Maximize2,
   RefreshCw,
@@ -22,7 +22,7 @@ import {
   parseNetworkSnapshot,
 } from './graphModel';
 import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDisplaySettings } from './displaySettings';
-import { flagUrl } from './flags';
+import { countryName, flagUrl } from './flags';
 import networkIconUrl from './assets/brand/qortium-network-icon.png';
 import { qdnRequest } from './qdnRequest';
 import { sampleSnapshot } from './sampleData';
@@ -44,6 +44,12 @@ const EMPTY_SNAPSHOT: NetworkSnapshot = {
   nodes: {},
   topology: { edges: [], graphNodes: {} },
 };
+
+const STAT_DETAIL_TITLES = {
+  countries: 'Countries',
+  links: 'Link types',
+  nodes: 'Node roles',
+} as const;
 
 const EDGE_LABELS: Record<EdgeKind, string> = {
   I2P_CHAIN: 'I2P chain',
@@ -102,6 +108,8 @@ function NodeGlyph({
   const badgeRadius = Math.max(7, Math.min(13, node.radius * 0.4));
   const badgeX = node.x + Math.cos(Math.PI / 4) * node.radius;
   const badgeY = node.y + Math.sin(Math.PI / 4) * node.radius;
+  // The country name is revealed only for the selected/centered node.
+  const activeCountry = active ? countryName(node.country) : undefined;
 
   return (
     <g
@@ -141,6 +149,11 @@ function NodeGlyph({
             height={badgeRadius * 2}
           />
         </g>
+      ) : null}
+      {activeCountry ? (
+        <text x={node.x} y={node.y + node.radius + 18} className="node-country" pointerEvents="none">
+          {activeCountry}
+        </text>
       ) : null}
     </g>
   );
@@ -223,6 +236,7 @@ export function App() {
   const [selectedSlug, setSelectedSlug] = useState<string | undefined>();
   const [pinnedNodeId, setPinnedNodeId] = useState<string | undefined>();
   const [controlsOpen, setControlsOpen] = useState(false);
+  const [detail, setDetail] = useState<'nodes' | 'links' | 'countries' | null>(null);
   const [visibleKinds, setVisibleKinds] = useState<Set<EdgeKind>>(() => new Set(EDGE_KINDS));
   const [displaySettings, setDisplaySettings] = useState(getInitialDisplaySettings);
 
@@ -242,6 +256,56 @@ export function App() {
     () => (activeNodeId ? getConnectedNodeIds(targetGraph.edges, activeNodeId) : new Set<string>()),
     [activeNodeId, targetGraph.edges],
   );
+  const nodeBreakdown = useMemo(() => {
+    let seeds = 0;
+    let peers = 0;
+    let chain = 0;
+    let data = 0;
+
+    for (const node of targetGraph.nodes) {
+      if (node.role === 'seed') {
+        seeds += 1;
+      } else {
+        peers += 1;
+      }
+
+      if ((node.chainCount ?? 0) > 0) {
+        chain += 1;
+      }
+
+      if ((node.dataCount ?? 0) > 0) {
+        data += 1;
+      }
+    }
+
+    return { chain, data, peers, seeds };
+  }, [targetGraph.nodes]);
+
+  const linkBreakdown = useMemo(() => {
+    const counts = new Map<EdgeKind, number>();
+
+    for (const edge of targetGraph.edges) {
+      counts.set(edge.kind, (counts.get(edge.kind) ?? 0) + 1);
+    }
+
+    return counts;
+  }, [targetGraph.edges]);
+
+  const countryBreakdown = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    for (const node of targetGraph.nodes) {
+      if (node.country) {
+        const code = node.country.toUpperCase();
+
+        counts.set(code, (counts.get(code) ?? 0) + 1);
+      }
+    }
+
+    return [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+  }, [targetGraph.nodes]);
+
+  const countryCount = countryBreakdown.length;
 
   const viewport = useGraphViewport({
     width: targetGraph.width,
@@ -308,6 +372,24 @@ export function App() {
   useEffect(() => {
     applyDisplaySettings(displaySettings);
   }, [displaySettings]);
+
+  useEffect(() => {
+    if (!detail) {
+      return;
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setDetail(null);
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [detail]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -416,20 +498,20 @@ export function App() {
       </header>
 
       <section className="status-strip" aria-label="Topology summary">
-        <div>
+        <button type="button" className="status-item" onClick={() => setDetail('nodes')} aria-haspopup="dialog">
           <Server size={16} />
           <span>{graph.nodes.length} nodes</span>
-        </div>
-        <div>
+        </button>
+        <button type="button" className="status-item" onClick={() => setDetail('links')} aria-haspopup="dialog">
           <Wifi size={16} />
           <span>{graph.edges.length} visible links</span>
-        </div>
-        <div>
-          <Database size={16} />
+        </button>
+        <button type="button" className="status-item" onClick={() => setDetail('countries')} aria-haspopup="dialog">
+          <Globe size={16} />
           <span>
-            {QDN_RESOURCE.service}/{QDN_RESOURCE.name}/{QDN_RESOURCE.identifier}
+            {countryCount} {countryCount === 1 ? 'country' : 'countries'}
           </span>
-        </div>
+        </button>
         <div>
           <Activity size={16} />
           <span>{Object.keys(snapshot?.errors ?? {}).length} collection errors</span>
@@ -578,6 +660,94 @@ export function App() {
         </button>
         <ControlContent onToggleKind={toggleKind} visibleKinds={visibleKinds} />
       </aside>
+
+      {detail ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setDetail(null)}>
+          <div
+            className="stat-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={STAT_DETAIL_TITLES[detail]}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="stat-modal__head">
+              <div className="panel-heading">
+                {detail === 'nodes' ? <Server size={16} /> : detail === 'links' ? <Wifi size={16} /> : <Globe size={16} />}
+                <h2>{STAT_DETAIL_TITLES[detail]}</h2>
+              </div>
+              <button className="drawer-close" type="button" onClick={() => setDetail(null)} aria-label="Close details">
+                <X size={18} />
+              </button>
+            </div>
+
+            {detail === 'nodes' ? (
+              <dl className="stat-detail">
+                <div className="stat-row">
+                  <dt>Seeds</dt>
+                  <dd>{nodeBreakdown.seeds}</dd>
+                </div>
+                <div className="stat-row">
+                  <dt>Peers</dt>
+                  <dd>{nodeBreakdown.peers}</dd>
+                </div>
+                <div className="stat-row">
+                  <dt>Chain-connected</dt>
+                  <dd>{nodeBreakdown.chain}</dd>
+                </div>
+                <div className="stat-row">
+                  <dt>Data-connected</dt>
+                  <dd>{nodeBreakdown.data}</dd>
+                </div>
+              </dl>
+            ) : null}
+
+            {detail === 'links' ? (
+              <dl className="stat-detail">
+                {EDGE_KINDS.map((kind) => (
+                  <div key={kind} className="stat-row">
+                    <dt>
+                      <span className="edge-swatch" style={{ backgroundColor: EDGE_COLORS[kind] }} />
+                      {EDGE_LABELS[kind]}
+                    </dt>
+                    <dd>{linkBreakdown.get(kind) ?? 0}</dd>
+                  </div>
+                ))}
+                {(linkBreakdown.get('unknown') ?? 0) > 0 ? (
+                  <div className="stat-row">
+                    <dt>
+                      <span className="edge-swatch" style={{ backgroundColor: EDGE_COLORS.unknown }} />
+                      {EDGE_LABELS.unknown}
+                    </dt>
+                    <dd>{linkBreakdown.get('unknown')}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            ) : null}
+
+            {detail === 'countries' ? (
+              countryBreakdown.length > 0 ? (
+                <dl className="stat-detail">
+                  {countryBreakdown.map(([code, count]) => {
+                    const flag = flagUrl(code);
+
+                    return (
+                      <div key={code} className="stat-row">
+                        <dt>
+                          {flag ? <img className="stat-flag" src={flag} alt="" aria-hidden="true" /> : null}
+                          {countryName(code) ?? code}
+                        </dt>
+                        <dd>{count}</dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              ) : (
+                <p className="stat-empty">No country data for the visible nodes.</p>
+              )
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
