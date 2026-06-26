@@ -272,9 +272,9 @@ function appendQuery(pathname, query) {
 
 function buildConfig() {
   const nodeApiUrl = (readEnv('NODE_API_URL') ?? DEFAULT_NODE_API_URL).replace(/\/+$/, '');
-  const apiKeyPath = expandHomePath(readEnv('NODE_API_KEY_PATH') ?? '~/git/qortium/preview/apikey.txt');
+  const apiKeyPath = expandHomePath(readEnv('NODE_API_KEY_PATH') ?? '~/.config/qortium-core/runtime/apikey.txt');
   const previewAccountsPath = expandHomePath(
-    readEnv('PREVIEW_ACCOUNTS_PATH') ?? '~/git/qortium/preview/secrets/initial-minting-accounts.json',
+    readEnv('PREVIEW_ACCOUNTS_PATH') ?? '~/qortium/git/qortium-core/preview/secrets/initial-minting-accounts.json',
   );
 
   return {

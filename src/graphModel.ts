@@ -100,10 +100,55 @@ function positionNodes(nodes: TopologyNode[], edges: TopologyEdge[], width: numb
   );
   const chainX = left + (right - left) * 0.15;
   const dataX = right - (right - left) * 0.15;
-  const topY = top + (bottom - top) * 0.16;
-  const bottomY = bottom - (bottom - top) * 0.16;
-  const centerLoX = centerX - (right - left) * 0.18;
-  const centerHiX = centerX + (right - left) * 0.18;
+
+  // --- Country + I2P-balance shaping for peer ("both"/P) nodes --------------
+  // Same-country peers attract into neighborhoods; a peer's I2P chain/data edge
+  // balance leans it toward the chain (left) or data (right) side, while IP-only
+  // peers with no I2P links stay central. C/D nodes have no IP (no country) and
+  // keep their hard left/right anchors. Seeds are ordinary "both" peers here.
+  // NOTE: app layout only — mirror this in layout_graph() in
+  // tools/network-topology-data.py to match the static preview SVG later.
+  const countryOf = new Map<string, string>();
+  for (const id of ids) {
+    const country = nodeById.get(id)!.country;
+
+    if (country) {
+      countryOf.set(id, country.toUpperCase());
+    }
+  }
+
+  const i2pChainDeg = new Map<string, number>();
+  const i2pDataDeg = new Map<string, number>();
+  for (const edge of edges) {
+    const bucket = edge.kind === 'I2P_CHAIN' ? i2pChainDeg : edge.kind === 'I2P_DATA' ? i2pDataDeg : null;
+
+    if (!bucket) {
+      continue;
+    }
+
+    for (const endpoint of [edge.source, edge.target]) {
+      if (groupOf.has(endpoint)) {
+        bucket.set(endpoint, (bucket.get(endpoint) ?? 0) + 1);
+      }
+    }
+  }
+
+  const targetXOf = new Map<string, number>();
+  for (const id of ids) {
+    if (groupOf.get(id) !== 'both') {
+      continue;
+    }
+
+    const chainLinks = i2pChainDeg.get(id) ?? 0;
+    const dataLinks = i2pDataDeg.get(id) ?? 0;
+    const total = chainLinks + dataLinks;
+    // lean: -1 = all I2P-chain (left) .. +1 = all I2P-data (right). Conviction
+    // ramps in over the first few links so one link can't fling a node to a side.
+    const lean = total === 0 ? 0 : (dataLinks - chainLinks) / total;
+    const conviction = Math.min(1, total / 3);
+
+    targetXOf.set(id, centerX + lean * conviction * (dataX - centerX));
+  }
 
   const members: Record<string, string[]> = { both: [], chain: [], data: [], operator: [] };
   for (const id of ids) {
@@ -134,13 +179,14 @@ function positionNodes(nodes: TopologyNode[], edges: TopologyEdge[], width: numb
   seedLine(members.data!, 'x', dataX, top + 40, bottom - 40);
 
   const both = members.both!;
-  const split = Math.ceil(both.length / 2);
-  const targetY = new Map<string, number>();
 
-  both.slice(0, split).forEach((id) => targetY.set(id, topY));
-  both.slice(split).forEach((id) => targetY.set(id, bottomY));
-  seedLine(both.slice(0, split), 'y', topY, centerLoX, centerHiX);
-  seedLine(both.slice(split), 'y', bottomY, centerLoX, centerHiX);
+  // Seed peers at their chain/data lean (x) and spread across the vertical band
+  // (y); country attraction and repulsion refine the arrangement during relaxation.
+  both.forEach((id, index) => {
+    const bandT = both.length <= 1 ? 0.5 : (index + 0.5) / both.length;
+
+    positions.set(id, { x: targetXOf.get(id) ?? centerX, y: top + 40 + (bottom - top - 80) * bandT });
+  });
 
   for (const id of ids) {
     if (!positions.has(id)) {
@@ -164,6 +210,22 @@ function positionNodes(nodes: TopologyNode[], edges: TopologyEdge[], width: numb
 
   for (let iteration = 0; iteration < 520; iteration += 1) {
     const forces = new Map(ids.map((id) => [id, { x: 0, y: 0 }]));
+    const centroids = new Map<string, { count: number; x: number; y: number }>();
+
+    for (const [id, country] of countryOf) {
+      const pos = positions.get(id)!;
+      const centroid = centroids.get(country) ?? { count: 0, x: 0, y: 0 };
+
+      centroid.x += pos.x;
+      centroid.y += pos.y;
+      centroid.count += 1;
+      centroids.set(country, centroid);
+    }
+
+    for (const centroid of centroids.values()) {
+      centroid.x /= centroid.count;
+      centroid.y /= centroid.count;
+    }
 
     ids.forEach((a, index) => {
       const aPos = positions.get(a)!;
@@ -224,13 +286,24 @@ function positionNodes(nodes: TopologyNode[], edges: TopologyEdge[], width: numb
         ax += (dataX - pos.x) * 0.013;
         ay += (centerY - pos.y) * 0.0015;
       } else if (group === 'both') {
-        ax += (centerX - pos.x) * 0.004;
-        ay += ((targetY.get(id) ?? centerY) - pos.y) * 0.013;
+        // Horizontal = chain/data lean; vertical kept gently contained so
+        // repulsion + country attraction own the spread.
+        ax += ((targetXOf.get(id) ?? centerX) - pos.x) * 0.02;
+        ay += (centerY - pos.y) * 0.0016;
       } else {
         const centralPull = 0.004 + 0.01 * ((centrality.get(id) ?? 0) / maxCentrality);
 
         ax += (centerX - pos.x) * centralPull;
         ay += (centerY - pos.y) * centralPull;
+      }
+
+      const country = countryOf.get(id);
+
+      if (country) {
+        const centroid = centroids.get(country)!;
+
+        ax += (centroid.x - pos.x) * 0.014;
+        ay += (centroid.y - pos.y) * 0.014;
       }
 
       positions.set(id, { x: pos.x + ax, y: pos.y + ay });

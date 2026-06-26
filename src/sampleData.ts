@@ -255,6 +255,7 @@ export const sampleSnapshot: NetworkSnapshot = {
       },
       N: {
         chainCount: 2,
+        country: 'DE',
         dataCount: 1,
         height: 1200,
         host: '185.207.104.78',
@@ -270,6 +271,7 @@ export const sampleSnapshot: NetworkSnapshot = {
       },
       R: {
         chainCount: 2,
+        country: 'DE',
         dataCount: 1,
         height: 1200,
         host: '146.103.42.59',
