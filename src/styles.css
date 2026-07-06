@@ -6,6 +6,14 @@
   font-weight: 100 900;
 }
 
+@font-face {
+  font-family: "Inter";
+  src: url("./assets/fonts/inter/inter-latin-wght-normal.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 100 900;
+}
+
 :root {
   --qn-text-scale: 1;
   --qn-text-body: calc(16px * var(--qn-text-scale));
@@ -281,6 +289,45 @@
   --qn-text-scale: 2.1;
 }
 
+:root[data-ui='modern'] {
+  --qn-radius-sm: 8px;
+  --qn-radius-pill: 50px;
+
+  --qn-color-page-bg: #f2efe6;
+  --qn-color-surface: #ffffff;
+  --qn-color-surface-alt: #f7f4ec;
+  --qn-color-border: #ddd9d0;
+  --qn-color-border-strong: #ddd9d0;
+  --qn-color-border-subtle: #ddd9d0;
+  --qn-color-text: #0d0d0d;
+  --qn-color-muted: #6b6b6b;
+
+  --qn-color-panel-bg: #ffffff;
+  --qn-color-map-bg: #f2efe6;
+  --qn-color-node-fill: #ffffff;
+  --qn-color-node-stroke: #ddd9d0;
+
+  font-family:
+    "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+}
+
+:root[data-theme='dark'][data-ui='modern'] {
+  --qn-color-page-bg: #111318;
+  --qn-color-surface: #1c1f28;
+  --qn-color-surface-alt: #222633;
+  --qn-color-border: #2e3340;
+  --qn-color-border-strong: #2e3340;
+  --qn-color-border-subtle: #2e3340;
+  --qn-color-text: #e4e8f0;
+  --qn-color-muted: #8892a4;
+
+  --qn-color-panel-bg: #1c1f28;
+  --qn-color-map-bg: #111318;
+  --qn-color-node-fill: #222633;
+  --qn-color-node-stroke: #2e3340;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -329,6 +376,14 @@ input {
   gap: 16px;
   justify-content: space-between;
   min-height: 0;
+}
+
+:root[data-ui='modern'] .top-bar {
+  background: var(--qn-color-surface);
+  border: 1.5px solid var(--qn-color-border);
+  border-radius: var(--qn-radius-sm);
+  min-height: 52px;
+  padding: 8px 14px;
 }
 
 .top-bar__brand {
@@ -396,6 +451,12 @@ input {
   white-space: nowrap;
 }
 
+:root[data-ui='modern'] .icon-button {
+  border-width: 1.5px;
+  border-radius: var(--qn-radius-pill);
+  box-shadow: none;
+}
+
 .icon-button.secondary {
   background: var(--qn-color-surface);
   border-color: var(--qn-color-border);
@@ -437,6 +498,20 @@ input {
   min-height: 38px;
   min-width: 0;
   padding: 8px 10px;
+}
+
+:root[data-ui='modern'] .status-strip > div,
+:root[data-ui='modern'] .status-strip > .status-item,
+:root[data-ui='modern'] .record-bar,
+:root[data-ui='modern'] .control-panel,
+:root[data-ui='modern'] .detail-panel,
+:root[data-ui='modern'] .controls-drawer,
+:root[data-ui='modern'] .map-surface,
+:root[data-ui='modern'] .sample-list,
+:root[data-ui='modern'] .stat-modal {
+  border-width: 1.5px;
+  border-radius: var(--qn-radius-sm);
+  box-shadow: none;
 }
 
 .status-strip > .status-item {
@@ -659,6 +734,28 @@ input {
   filter: drop-shadow(0 4px 8px rgb(15 23 42 / 0.2));
 }
 
+:root[data-ui='modern'] .graph-node circle,
+:root[data-ui='modern'] .node-flag-disc {
+  filter: drop-shadow(0 1px 2px rgb(13 13 13 / 0.16));
+}
+
+:root[data-theme='dark'][data-ui='modern'] .graph-node circle,
+:root[data-theme='dark'][data-ui='modern'] .node-flag-disc {
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.35));
+}
+
+:root[data-ui='modern'] .graph-node.is-active circle,
+:root[data-ui='modern'] .graph-node.is-connected circle,
+:root[data-ui='modern'] .graph-node:focus circle {
+  filter: drop-shadow(0 3px 8px rgb(13 13 13 / 0.18));
+}
+
+:root[data-theme='dark'][data-ui='modern'] .graph-node.is-active circle,
+:root[data-theme='dark'][data-ui='modern'] .graph-node.is-connected circle,
+:root[data-theme='dark'][data-ui='modern'] .graph-node:focus circle {
+  filter: drop-shadow(0 3px 8px rgb(0 0 0 / 0.42));
+}
+
 .node-label {
   fill: var(--qn-color-text);
   font-family:
@@ -666,6 +763,14 @@ input {
     "Segoe UI", sans-serif;
   font-weight: 800;
   text-anchor: middle;
+}
+
+:root[data-ui='modern'] .node-label,
+:root[data-ui='modern'] .node-badge__label,
+:root[data-ui='modern'] .node-country {
+  font-family:
+    "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
 }
 
 /* Flagged nodes: the flag SVG (already circular) is the disc, with a stroke-only
@@ -780,6 +885,12 @@ input {
   width: 36px;
 }
 
+:root[data-ui='modern'] .drawer-close {
+  border-width: 1.5px;
+  border-radius: var(--qn-radius-pill);
+  box-shadow: none;
+}
+
 .modal-backdrop {
   align-items: center;
   background: rgb(15 23 42 / 0.45);
@@ -789,6 +900,14 @@ input {
   padding: 20px;
   position: fixed;
   z-index: 50;
+}
+
+:root[data-ui='modern'] .modal-backdrop {
+  background: rgb(13 13 13 / 0.38);
+}
+
+:root[data-theme='dark'][data-ui='modern'] .modal-backdrop {
+  background: rgb(0 0 0 / 0.45);
 }
 
 .stat-modal {

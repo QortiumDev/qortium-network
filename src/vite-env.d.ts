@@ -5,4 +5,6 @@ interface Window {
   _qdnTheme?: unknown;
   _qdnAccent?: unknown;
   _qdnTextSize?: unknown;
+  _qdnUiStyle?: unknown;
+  _qdnUIStyle?: unknown;
 }
