@@ -21,6 +21,21 @@ export const EDGE_COLORS: Record<EdgeKind, string> = {
   unknown: '#6b7280',
 };
 
+export const VERSION_COLORS = {
+  behind1: '#f59e0b',
+  behind2: '#dc2626',
+  latest: '#16a34a',
+  older: '#9ca3af',
+  unknown: '#2563eb',
+} as const;
+
+export type VersionLegendItem = {
+  color: string;
+  label: string;
+  rank?: number;
+  tuple?: number[];
+};
+
 const EDGE_ORDER: Record<EdgeKind, number> = {
   IP_CHAIN: 0,
   IP_DATA: 1,
@@ -35,6 +50,105 @@ export function getPeerCount(node: Pick<TopologyNode, 'chainCount' | 'dataCount'
   }
 
   return (node.chainCount ?? 0) + (node.dataCount ?? 0);
+}
+
+export function shortVersion(version: string | undefined) {
+  if (!version) {
+    return undefined;
+  }
+
+  const trimmed = version.startsWith('qortium-') ? version.slice('qortium-'.length) : version;
+
+  return trimmed.split('-', 1)[0] || version;
+}
+
+export function representativeVersion(versions: string[] | undefined) {
+  if (!versions?.length) {
+    return undefined;
+  }
+
+  return [...versions].sort().at(-1);
+}
+
+export function getNodeVersion(node: Pick<TopologyNode, 'version' | 'versions'>) {
+  return shortVersion(node.version ?? representativeVersion(node.versions));
+}
+
+function versionTuple(version: string | undefined) {
+  if (!version) {
+    return undefined;
+  }
+
+  const parts: number[] = [];
+
+  for (const chunk of version.split('.')) {
+    if (!/^\d+$/.test(chunk)) {
+      break;
+    }
+
+    parts.push(Number(chunk));
+  }
+
+  return parts.length > 0 ? parts : undefined;
+}
+
+function compareVersionTuples(left: number[], right: number[]) {
+  const length = Math.max(left.length, right.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const diff = (left[index] ?? 0) - (right[index] ?? 0);
+
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+
+  return 0;
+}
+
+function versionTupleKey(tuple: number[]) {
+  return tuple.join('.');
+}
+
+export function createVersionLegend(nodes: Array<Pick<TopologyNode, 'version' | 'versions'>>): VersionLegendItem[] {
+  const tupleByKey = new Map<string, number[]>();
+
+  for (const node of nodes) {
+    const tuple = versionTuple(getNodeVersion(node));
+
+    if (tuple) {
+      tupleByKey.set(versionTupleKey(tuple), tuple);
+    }
+  }
+
+  const newestFirst = [...tupleByKey.values()].sort((left, right) => compareVersionTuples(right, left));
+  const palette = [VERSION_COLORS.latest, VERSION_COLORS.behind1, VERSION_COLORS.behind2];
+  const items: VersionLegendItem[] = newestFirst.slice(0, 3).map((tuple, index) => ({
+    color: palette[index]!,
+    label: `v${versionTupleKey(tuple)}`,
+    rank: index,
+    tuple,
+  }));
+  const hasOlder = newestFirst.length > 3;
+  const hasUnknown = nodes.some((node) => !versionTuple(getNodeVersion(node)));
+
+  if (hasOlder) {
+    items.push({ color: VERSION_COLORS.older, label: 'Older' });
+  }
+
+  if (hasUnknown) {
+    items.push({ color: VERSION_COLORS.unknown, label: 'Unknown' });
+  }
+
+  return items;
+}
+
+export function getNodeVersionColor(node: Pick<TopologyNode, 'version' | 'versions'>, legend: VersionLegendItem[]) {
+  const tuple = versionTuple(getNodeVersion(node));
+  const key = tuple ? versionTupleKey(tuple) : undefined;
+  const item = key ? legend.find((entry) => entry.tuple && versionTupleKey(entry.tuple) === key) : undefined;
+
+  return tuple ? item?.color ?? VERSION_COLORS.older : VERSION_COLORS.unknown;
 }
 
 export function nodeRadius(node: TopologyNode, maxPeerCount: number) {

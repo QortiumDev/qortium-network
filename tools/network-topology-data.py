@@ -76,12 +76,13 @@ COLORS = {
 
 # Outer-ring colors marking how current each node's Core version is, relative to
 # the newest version seen on the network during this run. The legend shows the
-# three newest version numbers; anything older (or unversioned) is "Older".
+# three newest version numbers, older known versions, and unknown versions.
 VERSION_COLORS = {
     "latest": "#16a34a",   # newest version seen
     "behind1": "#f59e0b",  # one version behind
     "behind2": "#dc2626",  # two versions behind
-    "older": "#9ca3af",    # older than the three newest, or no version reported
+    "older": "#9ca3af",    # older than the three newest reported versions
+    "unknown": "#2563eb",  # no Core version was reported for this node
 }
 
 # Compact, vendored IPv4 -> ISO 3166-1 alpha-2 table (CC0 source), built by
@@ -454,6 +455,7 @@ def collect_peer_exchange(
                     "layer": layer,
                     "fromPeer": record.get("fromPeer"),
                     "fromNodeId": record.get("fromNodeId"),
+                    "version": record.get("version"),
                     "transport": record.get("transport"),
                     "peers": [p for p in (record.get("peers") or []) if isinstance(p, str)],
                     "recordedBy": node.key,
@@ -869,12 +871,34 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
     # each advertised peer — revealing the I2P↔I2P mesh the seeds' /peers cannot see.
     # Chain and data destinations stay separate (independent identities), so a node's
     # blue (chain) and orange (data) circles are never merged.
-    def resolve_i2p_gossip_node(b32_host: str, layer: str, observer_label: str) -> str:
+    def note_gossip_sender_version(label: str, version: str | None, node_id: str | None) -> None:
+        if not version and not node_id:
+            return
+        node = graph_nodes.get(label) or extra_nodes.get(label)
+        if not node or node.get("kind") == "operator":
+            return
+        if version:
+            node.setdefault("versions", set()).add(version)
+        if node_id:
+            node.setdefault("nodeIds", set()).add(node_id)
+
+    def resolve_i2p_gossip_node(
+        b32_host: str,
+        layer: str,
+        observer_label: str,
+        *,
+        version: str | None = None,
+        node_id: str | None = None,
+    ) -> str:
         if layer == "chain" and b32_host in i2p_chain_to_label:
-            return i2p_chain_to_label[b32_host]
+            label = i2p_chain_to_label[b32_host]
+            note_gossip_sender_version(label, version, node_id)
+            return label
         if layer == "data" and b32_host in i2p_qdn_to_label:
-            return i2p_qdn_to_label[b32_host]
-        fake_peer = {"address": b32_host}
+            label = i2p_qdn_to_label[b32_host]
+            note_gossip_sender_version(label, version, node_id)
+            return label
+        fake_peer = {"address": b32_host, "nodeId": node_id, "version": version}
         extra_id = make_extra_id(b32_host, fake_peer)
         return add_extra(extra_id, b32_host, fake_peer, observer_label)
 
@@ -888,7 +912,13 @@ def build_topology(snapshot: dict[str, Any], max_extra_peers: int) -> dict[str, 
         recorded_by = record.get("recordedBy")
         observer_label = (named_by_key.get(recorded_by) or {}).get("label") or recorded_by or ""
         kind = "I2P_CHAIN" if layer == "chain" else "I2P_DATA"
-        from_label = resolve_i2p_gossip_node(from_host, layer, observer_label)
+        from_label = resolve_i2p_gossip_node(
+            from_host,
+            layer,
+            observer_label,
+            version=record.get("version"),
+            node_id=record.get("fromNodeId"),
+        )
         for advertised in record.get("peers") or []:
             peer_host = host_part(advertised)
             if not peer_host or not peer_host.endswith(".b32.i2p") or peer_host == from_host:
@@ -1136,7 +1166,9 @@ def render_svg(snapshot: dict[str, Any], topology: dict[str, Any]) -> str:
 
     def version_ring_color(short: str | None) -> str:
         vt = version_tuple(short)
-        rank = version_rank.get(vt) if vt is not None else None
+        if vt is None:
+            return VERSION_COLORS["unknown"]
+        rank = version_rank.get(vt)
         if rank is None:
             return VERSION_COLORS["older"]
         lag = latest_rank - rank
@@ -1303,8 +1335,11 @@ def render_svg(snapshot: dict[str, Any], topology: dict[str, Any]) -> str:
     version_palette = [VERSION_COLORS["latest"], VERSION_COLORS["behind1"], VERSION_COLORS["behind2"]]
     version_legend_items = [(version_palette[i], version_label(vt)) for i, vt in enumerate(top_versions)]
     has_older = any(version_ring_color(short) == VERSION_COLORS["older"] for short in node_versions.values())
+    has_unknown = any(version_ring_color(short) == VERSION_COLORS["unknown"] for short in node_versions.values())
     if has_older:
         version_legend_items.append((VERSION_COLORS["older"], "Older"))
+    if has_unknown:
+        version_legend_items.append((VERSION_COLORS["unknown"], "Unknown"))
     version_legend_svg = []
     for index, (color, text) in enumerate(version_legend_items):
         col, row = index % 2, index // 2
