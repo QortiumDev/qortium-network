@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { createGraphModel, EDGE_KINDS, getConnectedNodeIds, parseNetworkSnapshot } from './graphModel';
+import {
+  createGraphModel,
+  createVersionLegend,
+  EDGE_KINDS,
+  getConnectedNodeIds,
+  getNodeVersion,
+  getNodeVersionColor,
+  parseNetworkSnapshot,
+  VERSION_COLORS,
+} from './graphModel';
 import { sampleSnapshot } from './sampleData';
 
 describe('network graph model', () => {
@@ -45,5 +54,36 @@ describe('network graph model', () => {
   it('validates loaded snapshot shape', () => {
     expect(parseNetworkSnapshot(JSON.stringify(sampleSnapshot)).generatedAt).toBe(sampleSnapshot.generatedAt);
     expect(() => parseNetworkSnapshot({ nodes: {} })).toThrow(/topology graph data/);
+  });
+
+  it('ranks Core versions for graph rings and historical records', () => {
+    const nodes = [
+      { version: 'qortium-1.1.3-83fc209' },
+      { versions: ['qortium-1.0.0-fbaeb9e', 'qortium-1.1.2-b2b7237'] },
+      { version: 'qortium-1.0.0-fbaeb9e' },
+      {},
+    ];
+    const legend = createVersionLegend(nodes);
+
+    expect(legend.map((item) => item.label)).toEqual(['v1.1.3', 'v1.1.2', 'v1.0.0', 'Unknown']);
+    expect(getNodeVersion(nodes[0]!)).toBe('1.1.3');
+    expect(getNodeVersionColor(nodes[0]!, legend)).toBe(VERSION_COLORS.latest);
+    expect(getNodeVersionColor(nodes[1]!, legend)).toBe(VERSION_COLORS.behind1);
+    expect(getNodeVersionColor(nodes[3]!, legend)).toBe(VERSION_COLORS.unknown);
+  });
+
+  it('keeps known versions older than the top three separate from unknown', () => {
+    const nodes = [
+      { version: 'qortium-1.3.0-aaaaaaa' },
+      { version: 'qortium-1.2.2-bbbbbbb' },
+      { version: 'qortium-1.2.1-ccccccc' },
+      { version: 'qortium-1.2.0-ddddddd' },
+      {},
+    ];
+    const legend = createVersionLegend(nodes);
+
+    expect(legend.map((item) => item.label)).toEqual(['v1.3.0', 'v1.2.2', 'v1.2.1', 'Older', 'Unknown']);
+    expect(getNodeVersionColor(nodes[3]!, legend)).toBe(VERSION_COLORS.older);
+    expect(getNodeVersionColor(nodes[4]!, legend)).toBe(VERSION_COLORS.unknown);
   });
 });

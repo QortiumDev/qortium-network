@@ -74,7 +74,10 @@ the mesh interior the seeds' own `/peers` cannot see.
 This is discovery-level data (the same peer addresses any I2P node already shares),
 not live adjacency, so edges are approximate. Chain and data destinations use
 independent identities and are never merged (the blue/orange separation is preserved).
-Gossip edges carry `source: "gossip"` in their samples.
+Gossip edges carry `source: "gossip"` in their samples. Newer Core builds also
+include the gossip sender's Core version in `peer-exchange.jsonl`; the collector
+uses that for the sender node, while advertised-only peers remain `Unknown` unless
+they are observed independently.
 
 Flags: `--no-gossip` (skip it), `--gossip-window-hours` (default 6),
 `--gossip-tail-lines` (default 100000).

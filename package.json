@@ -1,6 +1,6 @@
 {
   "name": "qortium-network",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "license": "0BSD",
   "description": "A QDN network topology viewer for Qortium.",

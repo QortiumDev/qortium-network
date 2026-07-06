@@ -1,7 +1,7 @@
 import {
-  Activity,
   ChevronLeft,
   ChevronRight,
+  GitBranch,
   Globe,
   History,
   Maximize2,
@@ -15,8 +15,11 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   createGraphModel,
+  createVersionLegend,
   EDGE_COLORS,
   EDGE_KINDS,
+  getNodeVersion,
+  getNodeVersionColor,
   getConnectedNodeIds,
   getPeerCount,
   parseNetworkSnapshot,
@@ -35,6 +38,7 @@ const QDN_RESOURCE = {
   name: 'Network',
   service: 'DATABASE',
 } as const;
+const APP_VERSION = __APP_VERSION__;
 
 // Rendered while the first real snapshot is still loading, so the graph is empty
 // rather than flashing bundled sample data on startup.
@@ -49,6 +53,7 @@ const STAT_DETAIL_TITLES = {
   countries: 'Countries',
   links: 'Link types',
   nodes: 'Node roles',
+  versions: 'Core versions',
 } as const;
 
 const EDGE_LABELS: Record<EdgeKind, string> = {
@@ -88,11 +93,15 @@ function NodeGlyph({
   connected,
   node,
   onSelect,
+  versionColor,
+  versionLabel,
 }: {
   active: boolean;
   connected: boolean;
   node: GraphNode;
   onSelect: (nodeId: string) => void;
+  versionColor: string;
+  versionLabel?: string;
 }) {
   const seed = node.role === 'seed';
   const fill = seed ? 'var(--qn-color-node-fill-seed)' : 'var(--qn-color-node-fill)';
@@ -113,13 +122,21 @@ function NodeGlyph({
   const badgeCy = node.y + Math.sin(Math.PI / 4) * node.radius;
   // The country name is revealed only for the selected/centered node.
   const activeCountry = active ? countryName(node.country) : undefined;
+  const activeVersion = active ? (versionLabel ? `Core v${versionLabel}` : 'Core version unknown') : undefined;
+  const titleParts = [
+    node.name ?? node.host ?? node.label,
+    `${getPeerCount(node)} peers`,
+    versionLabel ? `Core v${versionLabel}` : 'Core version unknown',
+  ];
 
   return (
     <g
       className={`graph-node ${active ? 'is-active' : ''} ${connected ? 'is-connected' : ''}`}
       role="button"
       tabIndex={0}
-      aria-label={`${node.name ?? node.label}, ${getPeerCount(node)} peers`}
+      aria-label={`${node.name ?? node.label}, ${getPeerCount(node)} peers${
+        versionLabel ? `, Core version ${versionLabel}` : ''
+      }`}
       onClick={() => onSelect(node.id)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -128,11 +145,24 @@ function NodeGlyph({
         }
       }}
       onPointerDown={(event) => event.stopPropagation()}
-      style={{ '--node-fill': fill, '--node-stroke': stroke } as React.CSSProperties}
+      style={
+        {
+          '--node-fill': fill,
+          '--node-stroke': stroke,
+          '--version-ring-color': versionColor,
+        } as React.CSSProperties
+      }
     >
+      <title>{titleParts.join(', ')}</title>
+      <circle
+        className="node-version-ring"
+        cx={node.x}
+        cy={node.y}
+        r={node.radius + 5.5}
+        strokeWidth={4}
+      />
       {flag ? (
         <>
-          <title>{node.country}</title>
           <image
             className="node-flag-disc"
             href={flag}
@@ -173,15 +203,27 @@ function NodeGlyph({
           {activeCountry}
         </text>
       ) : null}
+      {activeVersion ? (
+        <text
+          x={node.x}
+          y={node.y + node.radius + (activeCountry ? 35 : 18)}
+          className="node-version-caption"
+          pointerEvents="none"
+        >
+          {activeVersion}
+        </text>
+      ) : null}
     </g>
   );
 }
 
 function ControlContent({
   onToggleKind,
+  versionLegend,
   visibleKinds,
 }: {
   onToggleKind: (kind: EdgeKind) => void;
+  versionLegend: Array<{ color: string; label: string }>;
   visibleKinds: Set<EdgeKind>;
 }) {
   return (
@@ -199,6 +241,22 @@ function ControlContent({
           </label>
         ))}
       </div>
+      {versionLegend.length > 0 ? (
+        <div className="version-legend" aria-label="Core version legend">
+          <div className="panel-heading">
+            <GitBranch size={16} />
+            <h2>Core version</h2>
+          </div>
+          <div className="version-legend__items">
+            {versionLegend.map((item) => (
+              <span key={item.label} className="version-legend__item">
+                <span className="version-ring-swatch" style={{ borderColor: item.color }} />
+                <span>{item.label}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -254,7 +312,7 @@ export function App() {
   const [selectedSlug, setSelectedSlug] = useState<string | undefined>();
   const [pinnedNodeId, setPinnedNodeId] = useState<string | undefined>();
   const [controlsOpen, setControlsOpen] = useState(false);
-  const [detail, setDetail] = useState<'nodes' | 'links' | 'countries' | null>(null);
+  const [detail, setDetail] = useState<'nodes' | 'links' | 'countries' | 'versions' | null>(null);
   const [visibleKinds, setVisibleKinds] = useState<Set<EdgeKind>>(() => new Set(EDGE_KINDS));
   const [displaySettings, setDisplaySettings] = useState(getInitialDisplaySettings);
 
@@ -324,6 +382,31 @@ export function App() {
   }, [targetGraph.nodes]);
 
   const countryCount = countryBreakdown.length;
+  const versionLegend = useMemo(() => createVersionLegend(targetGraph.nodes), [targetGraph.nodes]);
+  const versionBreakdown = useMemo(() => {
+    const counts = new Map<string, { color: string; count: number }>();
+
+    for (const node of targetGraph.nodes) {
+      const label = getNodeVersion(node) ? `v${getNodeVersion(node)}` : 'Unknown';
+      const current = counts.get(label) ?? { color: getNodeVersionColor(node, versionLegend), count: 0 };
+
+      current.count += 1;
+      counts.set(label, current);
+    }
+
+    return [...counts.entries()].sort((left, right) => {
+      if (left[0] === 'Unknown') {
+        return 1;
+      }
+
+      if (right[0] === 'Unknown') {
+        return -1;
+      }
+
+      return right[0].localeCompare(left[0], undefined, { numeric: true });
+    });
+  }, [targetGraph.nodes, versionLegend]);
+  const knownVersionCount = versionBreakdown.filter(([label]) => label !== 'Unknown').length;
 
   const viewport = useGraphViewport({
     width: targetGraph.width,
@@ -481,7 +564,10 @@ export function App() {
             <img src={networkIconUrl} alt="" aria-hidden="true" />
           </span>
           <div className="top-bar__heading">
-            <h1>Qortium Previewnet live topology</h1>
+            <div className="top-bar__title-row">
+              <h1>Qortium Previewnet live topology</h1>
+              <span className="app-version">{APP_VERSION}</span>
+            </div>
             <p>
               {snapshot
                 ? `Generated ${formatTimestamp(snapshot.generatedAt)} from /admin/status, /peers, and /peers/data.`
@@ -530,10 +616,12 @@ export function App() {
             {countryCount} {countryCount === 1 ? 'country' : 'countries'}
           </span>
         </button>
-        <div>
-          <Activity size={16} />
-          <span>{Object.keys(snapshot?.errors ?? {}).length} collection errors</span>
-        </div>
+        <button type="button" className="status-item" onClick={() => setDetail('versions')} aria-haspopup="dialog">
+          <GitBranch size={16} />
+          <span>
+            {knownVersionCount} Core {knownVersionCount === 1 ? 'version' : 'versions'}
+          </span>
+        </button>
       </section>
 
       {records.length > 1 ? (
@@ -593,7 +681,7 @@ export function App() {
 
       <div className="workbench">
         <aside className="control-panel" aria-label="Graph controls">
-          <ControlContent onToggleKind={toggleKind} visibleKinds={visibleKinds} />
+          <ControlContent onToggleKind={toggleKind} versionLegend={versionLegend} visibleKinds={visibleKinds} />
         </aside>
 
         <section className="map-surface" aria-label="Network topology graph">
@@ -661,6 +749,8 @@ export function App() {
                   connected={connectedNodeIds.has(node.id)}
                   node={node}
                   onSelect={selectNode}
+                  versionColor={getNodeVersionColor(node, versionLegend)}
+                  versionLabel={getNodeVersion(node)}
                 />
               ))}
             </g>
@@ -676,7 +766,7 @@ export function App() {
         <button className="drawer-close" type="button" onClick={() => setControlsOpen(false)} aria-label="Close filters">
           <X size={18} />
         </button>
-        <ControlContent onToggleKind={toggleKind} visibleKinds={visibleKinds} />
+        <ControlContent onToggleKind={toggleKind} versionLegend={versionLegend} visibleKinds={visibleKinds} />
       </aside>
 
       {detail ? (
@@ -690,7 +780,15 @@ export function App() {
           >
             <div className="stat-modal__head">
               <div className="panel-heading">
-                {detail === 'nodes' ? <Server size={16} /> : detail === 'links' ? <Wifi size={16} /> : <Globe size={16} />}
+                {detail === 'nodes' ? (
+                  <Server size={16} />
+                ) : detail === 'links' ? (
+                  <Wifi size={16} />
+                ) : detail === 'versions' ? (
+                  <GitBranch size={16} />
+                ) : (
+                  <Globe size={16} />
+                )}
                 <h2>{STAT_DETAIL_TITLES[detail]}</h2>
               </div>
               <button className="drawer-close" type="button" onClick={() => setDetail(null)} aria-label="Close details">
@@ -761,6 +859,24 @@ export function App() {
                 </dl>
               ) : (
                 <p className="stat-empty">No country data for the visible nodes.</p>
+              )
+            ) : null}
+
+            {detail === 'versions' ? (
+              versionBreakdown.length > 0 ? (
+                <dl className="stat-detail">
+                  {versionBreakdown.map(([label, item]) => (
+                    <div key={label} className="stat-row">
+                      <dt>
+                        <span className="version-ring-swatch" style={{ borderColor: item.color }} />
+                        {label}
+                      </dt>
+                      <dd>{item.count}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="empty-state">No Core versions reported.</p>
               )
             ) : null}
           </div>
