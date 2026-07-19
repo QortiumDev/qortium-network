@@ -15,6 +15,8 @@ The React viewer currently provides:
 - country flags and version rings, with details for the selected node;
 - snapshot-history navigation with a slider, older/newer controls, and
   Left/Right Arrow keyboard shortcuts;
+- durable historical-snapshot URLs that participate in Home Back/Forward
+  navigation while keeping the latest snapshot at the canonical app URL;
 - bundled sample data when published QDN data cannot be loaded.
 
 The app loads `latest.json`, `index.json`, and historical snapshot files from
@@ -23,12 +25,17 @@ browser it performs the same read-only requests against
 `http://127.0.0.1:24891` by default. Set `VITE_QORTIUM_NODE_API_URL` to use a
 different development node.
 
+Historical links use `?snapshot=YYYYMMDDTHHMMSSZ`, matching an indexed file at
+`snapshots/<snapshotId>.json`. The bounded DATABASE history currently retains
+the newest 1,000 snapshots, so a sufficiently old link can eventually fall back
+to the latest retained record after its snapshot is pruned.
+
 The viewer supports Classic and Modern QDN UI styles, along with Home theme,
 accent, and text-size settings. It does not define a Fun style.
 
 ## QAVS
 
-The app is at QAVS `1.4.0`: `1.4` is the minimum Qortium platform level and the
+The app is at QAVS `1.4.1`: `1.4` is the minimum Qortium platform level and the
 patch number is the app release. `vite.config.ts` reads `package.json`, injects
 the visible version badge, and emits `dist/qortium-app.json` with the name
 `Network` and the current version during every build.

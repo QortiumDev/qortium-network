@@ -12,7 +12,7 @@ import {
   Wifi,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createGraphModel,
   createVersionLegend,
@@ -28,6 +28,12 @@ import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDi
 import { countryName, flagUrl } from './flags';
 import networkIconUrl from './assets/brand/qortium-network-icon.png';
 import { qdnRequest } from './qdnRequest';
+import {
+  getCanonicalNetworkRoute,
+  getNetworkRouteUrl,
+  readNetworkRoute,
+  resolveNetworkSnapshotId,
+} from './networkRoute';
 import { sampleSnapshot } from './sampleData';
 import { useAnimatedGraph } from './useAnimatedGraph';
 import { useGraphViewport } from './useGraphViewport';
@@ -315,6 +321,7 @@ export function App() {
   const [detail, setDetail] = useState<'nodes' | 'links' | 'countries' | 'versions' | null>(null);
   const [visibleKinds, setVisibleKinds] = useState<Set<EdgeKind>>(() => new Set(EDGE_KINDS));
   const [displaySettings, setDisplaySettings] = useState(getInitialDisplaySettings);
+  const loadSequenceRef = useRef(0);
 
   const activeNodeId = pinnedNodeId;
   const activeSnapshot = snapshot ?? EMPTY_SNAPSHOT;
@@ -414,7 +421,11 @@ export function App() {
     onBackgroundTap: () => setPinnedNodeId(undefined),
   });
 
-  const refresh = useCallback(async () => {
+  const loadRecordsForRoute = useCallback(async (
+    requestedSnapshotId: string | null,
+    historyMode: 'none' | 'replace',
+  ) => {
+    const loadSequence = ++loadSequenceRef.current;
     setLoading(true);
     setLoadError(null);
 
@@ -430,35 +441,94 @@ export function App() {
       const newest = index[0];
 
       if (newest) {
+        const targetSnapshotId = resolveNetworkSnapshotId(
+          requestedSnapshotId,
+          index.map((record) => record.snapshotId),
+        )!;
+        const nextSnapshot = await loadSnapshotBySlug(targetSnapshotId);
+
+        if (loadSequence !== loadSequenceRef.current) {
+          return;
+        }
+
         setRecords(index);
-        setSelectedSlug(newest.snapshotId);
-        setSnapshot(await loadSnapshotBySlug(newest.snapshotId));
+        setSelectedSlug(targetSnapshotId);
+        setSnapshot(nextSnapshot);
+        if (historyMode === 'replace') {
+          window.history.replaceState(
+            {},
+            '',
+            getNetworkRouteUrl(
+              window.location.href,
+              getCanonicalNetworkRoute(targetSnapshotId, newest.snapshotId),
+            ),
+          );
+        }
       } else {
+        const nextSnapshot = await loadNetworkSnapshot();
+
+        if (loadSequence !== loadSequenceRef.current) {
+          return;
+        }
+
         setRecords([]);
         setSelectedSlug(undefined);
-        setSnapshot(await loadNetworkSnapshot());
+        setSnapshot(nextSnapshot);
+        if (historyMode === 'replace') {
+          window.history.replaceState({}, '', getNetworkRouteUrl(window.location.href, { snapshotId: null }));
+        }
       }
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
-      setSnapshot(sampleSnapshot);
+      if (loadSequence === loadSequenceRef.current) {
+        setLoadError(error instanceof Error ? error.message : String(error));
+        setSnapshot(sampleSnapshot);
+      }
     } finally {
-      setLoading(false);
+      if (loadSequence === loadSequenceRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
-  const selectRecord = useCallback(async (slug: string) => {
+  const refresh = useCallback(async () => {
+    await loadRecordsForRoute(null, 'replace');
+  }, [loadRecordsForRoute]);
+
+  const selectRecord = useCallback(async (slug: string, historyMode: 'none' | 'push' = 'push') => {
+    const loadSequence = ++loadSequenceRef.current;
+
+    if (historyMode === 'push') {
+      const newestSnapshotId = records[0]?.snapshotId;
+
+      if (newestSnapshotId) {
+        window.history.pushState(
+          {},
+          '',
+          getNetworkRouteUrl(window.location.href, getCanonicalNetworkRoute(slug, newestSnapshotId)),
+        );
+      }
+    }
+
     setSelectedSlug(slug);
     setLoading(true);
     setLoadError(null);
 
     try {
-      setSnapshot(await loadSnapshotBySlug(slug));
+      const nextSnapshot = await loadSnapshotBySlug(slug);
+
+      if (loadSequence === loadSequenceRef.current) {
+        setSnapshot(nextSnapshot);
+      }
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
+      if (loadSequence === loadSequenceRef.current) {
+        setLoadError(error instanceof Error ? error.message : String(error));
+      }
     } finally {
-      setLoading(false);
+      if (loadSequence === loadSequenceRef.current) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [records]);
 
   const selectedIndex = useMemo(() => {
     const index = records.findIndex((record) => record.snapshotId === selectedSlug);
@@ -467,8 +537,28 @@ export function App() {
   }, [records, selectedSlug]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void loadRecordsForRoute(readNetworkRoute(window.location.href).snapshotId, 'replace');
+  }, [loadRecordsForRoute]);
+
+  useEffect(() => {
+    function onPopState() {
+      const requestedSnapshotId = readNetworkRoute(window.location.href).snapshotId;
+      const targetSnapshotId = resolveNetworkSnapshotId(
+        requestedSnapshotId,
+        records.map((record) => record.snapshotId),
+      );
+
+      if (targetSnapshotId) {
+        void selectRecord(targetSnapshotId, 'none');
+      } else {
+        void loadRecordsForRoute(requestedSnapshotId, 'none');
+      }
+    }
+
+    window.addEventListener('popstate', onPopState);
+
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [loadRecordsForRoute, records, selectRecord]);
 
   useEffect(() => {
     applyDisplaySettings(displaySettings);
