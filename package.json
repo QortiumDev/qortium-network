@@ -1,6 +1,6 @@
 {
   "name": "qortium-network",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "private": true,
   "license": "0BSD",
   "description": "A QDN network topology viewer for Qortium.",
@@ -14,7 +14,8 @@
     "qdn:publish": "node scripts/publish-qdn.mjs",
     "qdn:publish:all": "npm run qdn:publish && npm run qdn:publish:data",
     "qdn:publish:data": "node scripts/publish-topology-data.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:qortal": "tsc --noEmit && vite build --mode qortal --outDir dist-qortal"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.1.0",

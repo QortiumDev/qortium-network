@@ -4,3 +4,4 @@ __pycache__/
 dist/
 node_modules/
 deploy/qortium-network.env
+dist-qortal/
