@@ -57,7 +57,7 @@ Host qortium-regxa
     StrictHostKeyChecking accept-new
 ```
 
-Verify: `ssh qortium-regxa 'curl -fsS --max-time 8 http://localhost:24891/admin/info'`
+Verify: `ssh qortium-regxa 'curl -fsS --max-time 8 http://127.0.0.1:24891/admin/info'`
 
 ## 4. Configure
 

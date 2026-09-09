@@ -203,7 +203,10 @@ def shell_quote(value: str) -> str:
 
 
 def fetch_endpoint(node: NodeConfig, endpoint: str, timeout: int) -> Any:
-    url = f"http://localhost:{API_PORT}{endpoint}"
+    # Management probes must stay on the explicitly trusted IPv4 loopback.
+    # On hosts where localhost prefers ::1, that address can intentionally be
+    # reserved for a reverse proxy subject to the public API path allowlist.
+    url = f"http://127.0.0.1:{API_PORT}{endpoint}"
     if node.ssh:
         command = f"curl -fsS --max-time {timeout} {shell_quote(url)}"
         output = run_command((*node.ssh, command), node.cwd, timeout + 55)
