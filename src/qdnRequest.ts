@@ -8,6 +8,7 @@ export const LOCAL_READ_ACTIONS = [
   'FETCH_NODE_API',
   'FETCH_QDN_RESOURCE',
   'GET_NODE_STATUS',
+  'GET_QDN_RESOURCE_STATUS',
   'IS_USING_PUBLIC_NODE',
   'LIST_QDN_RESOURCES',
   'SEARCH_QDN_RESOURCES',
@@ -199,6 +200,14 @@ async function fallbackQdnRequest<T>(request: QdnRequest): Promise<T> {
       return (await fetchLocalNodeApiData(request, buildFetchQdnResourcePath(request))) as T;
     case 'GET_NODE_STATUS':
       return (await fetchLocalNodeApiData(request, '/admin/status')) as T;
+    case 'GET_QDN_RESOURCE_STATUS': {
+      const service = getString(request.service).toUpperCase();
+      const name = getString(request.name);
+      if (!service || !name) throw new Error('QDN resource service and name are required.');
+      const identifier = getString(request.identifier) || 'default';
+      return await fetchLocalNodeApiData(request,
+        `/arbitrary/resource/status/${encodeURIComponent(service)}/${encodeURIComponent(name)}/${encodeURIComponent(identifier)}?build=${request.build === true}`) as T;
+    }
     case 'IS_USING_PUBLIC_NODE':
       return false as T;
     case 'LIST_QDN_RESOURCES':
@@ -225,9 +234,22 @@ export function normalizeQdnJson(value: unknown, maxBytes?: number): unknown {
   }
   const parsed = typeof value === 'string' ? parseResponseData(value, 'application/json') : value;
   if (isRecord(parsed) && parsed.error != null && parsed.error !== false) {
-    throw new Error(typeof parsed.message === 'string' ? parsed.message : String(parsed.error));
+    throw new Error(describeQdnError(parsed));
   }
   return parsed;
+}
+
+// Core/Hub can reject with a plain { error, message } object rather than Error.
+// Extract known message fields without dumping arbitrary response objects.
+export function describeQdnError(value: unknown, depth = 0): string {
+  if (depth > 5) return 'The QDN request failed.';
+  if (typeof value === 'string' && value.trim()) return value;
+  if (isRecord(value)) {
+    if (typeof value.message === 'string' && value.message.trim()) return value.message;
+    if (value.error != null && value.error !== false) return describeQdnError(value.error, depth + 1);
+  }
+  if (typeof value === 'number') return `QDN error ${value}.`;
+  return 'The QDN request failed.';
 }
 
 export function qortalReadRequest(request: QdnRequest): QdnRequest {
@@ -239,6 +261,10 @@ export function qortalReadRequest(request: QdnRequest): QdnRequest {
   if (action === 'SEARCH_QDN_RESOURCES' || action === 'LIST_QDN_RESOURCES') {
     const { maxBytes: _maxBytes, ...rest } = request;
     return { ...rest, action: 'SEARCH_QDN_RESOURCES' };
+  }
+  if (action === 'GET_QDN_RESOURCE_STATUS') {
+    const { maxBytes: _maxBytes, ...rest } = request;
+    return { ...rest, action };
   }
   throw new Error(`${request.action} is not supported by the Qortal read adapter.`);
 }
@@ -253,15 +279,19 @@ export async function qdnRequest<T = unknown>(request: QdnRequest): Promise<T> {
     : typeof window !== 'undefined' ? window.qdnRequest : undefined;
 
   if (typeof bridgeRequest === 'function') {
-    const result = await bridgeRequest<unknown>(HOSTING_NETWORK === 'qortal' ? qortalReadRequest(request) : request);
-    return (request.action.toUpperCase() === 'FETCH_QDN_RESOURCE' ? normalizeQdnJson(result, request.maxBytes) : result) as T;
+    try {
+      const result = await bridgeRequest<unknown>(HOSTING_NETWORK === 'qortal' ? qortalReadRequest(request) : request);
+      return (['FETCH_QDN_RESOURCE', 'GET_QDN_RESOURCE_STATUS'].includes(request.action.toUpperCase()) ? normalizeQdnJson(result, request.maxBytes) : result) as T;
+    } catch (error) {
+      throw new Error(describeQdnError(error));
+    }
   }
 
   return fallbackQdnRequest<T>(request);
 }
 
 export async function getAvailableActions(): Promise<QdnAction[]> {
-  if (HOSTING_NETWORK === 'qortal' && hasHomeBridge()) return ['FETCH_QDN_RESOURCE', 'SEARCH_QDN_RESOURCES', 'LIST_QDN_RESOURCES'];
+  if (HOSTING_NETWORK === 'qortal' && hasHomeBridge()) return ['FETCH_QDN_RESOURCE', 'GET_QDN_RESOURCE_STATUS', 'SEARCH_QDN_RESOURCES', 'LIST_QDN_RESOURCES'];
   try {
     const actions = await qdnRequest<unknown>({ action: 'SHOW_ACTIONS' });
 

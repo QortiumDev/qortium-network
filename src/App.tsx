@@ -27,7 +27,8 @@ import {
 import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDisplaySettings } from './displaySettings';
 import { countryName, flagUrl } from './flags';
 import networkIconUrl from './assets/brand/qortium-network-icon.png';
-import { qdnRequest } from './qdnRequest';
+import { describeQdnError, qdnRequest } from './qdnRequest';
+import { waitForQdnResource } from './qdnResource';
 import { DEVELOPERS_ENABLED, RUNTIME_DATABASE_RESOURCE as QDN_RESOURCE } from './qdnRuntime';
 import {
   getCanonicalNetworkRoute,
@@ -314,6 +315,7 @@ export function App() {
   const [snapshot, setSnapshot] = useState<NetworkSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadProgress, setLoadProgress] = useState('Loading network topology…');
   const [records, setRecords] = useState<RecordEntry[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string | undefined>();
   const [pinnedNodeId, setPinnedNodeId] = useState<string | undefined>();
@@ -322,6 +324,8 @@ export function App() {
   const [visibleKinds, setVisibleKinds] = useState<Set<EdgeKind>>(() => new Set(EDGE_KINDS));
   const [displaySettings, setDisplaySettings] = useState(getInitialDisplaySettings);
   const loadSequenceRef = useRef(0);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => { loadAbortRef.current?.abort(); ++loadSequenceRef.current; }, []);
 
   const activeNodeId = pinnedNodeId;
   const activeSnapshot = snapshot ?? EMPTY_SNAPSHOT;
@@ -426,10 +430,17 @@ export function App() {
     historyMode: 'none' | 'replace',
   ) => {
     const loadSequence = ++loadSequenceRef.current;
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
     setLoading(true);
     setLoadError(null);
 
     try {
+      await waitForQdnResource(QDN_RESOURCE, {
+        signal: controller.signal,
+        onProgress: message => { if (loadSequence === loadSequenceRef.current) setLoadProgress(message); },
+      });
       let index: RecordEntry[] = [];
 
       try {
@@ -480,7 +491,7 @@ export function App() {
       }
     } catch (error) {
       if (loadSequence === loadSequenceRef.current) {
-        setLoadError(error instanceof Error ? error.message : String(error));
+        setLoadError(describeQdnError(error));
         setSnapshot(sampleSnapshot);
       }
     } finally {
@@ -496,6 +507,9 @@ export function App() {
 
   const selectRecord = useCallback(async (slug: string, historyMode: 'none' | 'push' = 'push') => {
     const loadSequence = ++loadSequenceRef.current;
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
 
     if (historyMode === 'push') {
       const newestSnapshotId = records[0]?.snapshotId;
@@ -514,6 +528,10 @@ export function App() {
     setLoadError(null);
 
     try {
+      await waitForQdnResource(QDN_RESOURCE, {
+        signal: controller.signal,
+        onProgress: message => { if (loadSequence === loadSequenceRef.current) setLoadProgress(message); },
+      });
       const nextSnapshot = await loadSnapshotBySlug(slug);
 
       if (loadSequence === loadSequenceRef.current) {
@@ -521,7 +539,7 @@ export function App() {
       }
     } catch (error) {
       if (loadSequence === loadSequenceRef.current) {
-        setLoadError(error instanceof Error ? error.message : String(error));
+        setLoadError(describeQdnError(error));
       }
     } finally {
       if (loadSequence === loadSequenceRef.current) {
@@ -550,6 +568,7 @@ export function App() {
       setControlsOpen(false);
       setDetail(null);
       ++loadSequenceRef.current;
+      loadAbortRef.current?.abort();
       if (route.view === 'developers') {
         setLoading(false);
         return;
@@ -660,6 +679,7 @@ export function App() {
     }
     const route = { ...readNetworkRoute(window.location.href, DEVELOPERS_ENABLED), view: next };
     ++loadSequenceRef.current; // A pending topology read must not overwrite the Developers URL.
+    loadAbortRef.current?.abort();
     setView(next);
     setControlsOpen(false);
     setDetail(null);
@@ -807,7 +827,8 @@ export function App() {
         </section>
       ) : null}
 
-      {loadError ? <div className="load-notice">Using bundled sample data. QDN load failed: {loadError}</div> : null}
+      {loading ? <div className="load-notice" role="status">{loadProgress}</div> : null}
+      {loadError ? <div className="load-notice" role="alert">{snapshot === sampleSnapshot ? 'Using bundled sample data.' : 'Keeping the previously displayed snapshot.'} QDN load failed: {loadError}</div> : null}
 
       <div className="workbench">
         <aside className="control-panel" aria-label="Graph controls">
