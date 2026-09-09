@@ -100,6 +100,12 @@ The publisher reads `dist/`, uses the local Core at
 Overrides use the `QORTIUM_NETWORK_` prefix. The render URL is
 `http://127.0.0.1:24891/render/APP/Network/Network`.
 
+## Publish the same data on both QDNs
+
+See [dual QDN publishing](docs/dual-qdn-publishing.md) for opt-in Qortal
+configuration, legacy state migration, per-destination receipts, recovery and
+the separate Qortal app publication command.
+
 ## Collect topology data
 
 Generate a current snapshot, SVG, and the QDN payload directories with:

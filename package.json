@@ -15,7 +15,8 @@
     "qdn:publish:all": "npm run qdn:publish && npm run qdn:publish:data",
     "qdn:publish:data": "node scripts/publish-topology-data.mjs",
     "test": "vitest run",
-    "build:qortal": "tsc --noEmit && vite build --mode qortal --outDir dist-qortal"
+    "build:qortal": "tsc --noEmit && vite build --mode qortal --outDir dist-qortal",
+    "qdn:publish:qortal": "node scripts/publish-qortal-app.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.1.0",

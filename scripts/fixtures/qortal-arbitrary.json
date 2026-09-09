@@ -1,0 +1,8 @@
+{
+  "provenance": "Unsigned DATABASE/xnetwork/Network built by appnode.qortal.org on 2026-09-09, fee 0.01 QORT; never broadcast. Expected signature generated independently by existing qortal_local_sign.py. Key is public deterministic test bytes 0..31, not the publisher key.",
+  "unsigned": "1114k6ALe48pieMhbuYDUTp5FDqwmS5pkNJR5ay6whAzcVmHzmkAq2jSdizQCATsS7oMLVbAgWgUn3rFtnVBU5Esk4ZCsSpHGTEc3XKv1kTy1MRita27ivXYYxx3JaY1z1z2vXQUAb26A5JRZer4b5qHUE879oN7D61BPm1aaE4zzD2dSnM7u2BMw3VDnZX6PedheDn3HkJNQgY6CVKMwXHFhxrRo1uRsGusUBbmUQy9yzrZRdvBeZZGYSpwtLSDH2HWDRkUwoxwsJrw4oAy3nHXcgeiW5z1RuunrZK66HYBbBPQhc1a92XBG846S5KnFBMSqFkir4Yw",
+  "testSeed": "1thX6LZfHDZZKUs92febYZhYRcXddmzfzF2NvTkPNE",
+  "expectedSignature": "4UZ1R2Jd5Ac4QKoFJmUqP9KhiMfAFTruyKYicHKR8PkMxgZT3z3RK9iZ7wfrtVuhuMy9w15KVawifwcLvrNdsU6g",
+  "testAddress": "QhJWkDjDucBaiq7Qzgeq8uqDrDjBfMfNox",
+  "testPublicKey": "FAe4sisG95oZ42w7buUn5qEE4TAnfTTFPiguZUHmhiF"
+}
