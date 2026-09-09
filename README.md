@@ -54,7 +54,7 @@ including shallow viewer validation and separate DATABASE/SNAPSHOT transactions.
 
 ## QAVS
 
-The app is at QAVS `1.4.2`: `1.4` is the minimum Qortium platform level and the
+The app is at QAVS `1.4.3`: `1.4` is the minimum Qortium platform level and the
 patch number is the app release. `vite.config.ts` reads `package.json`, injects
 the visible version badge, and emits `dist/qortium-app.json` with the name
 `Network` and the current version during every build.
