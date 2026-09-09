@@ -581,6 +581,14 @@ input {
   padding: 6px 8px;
 }
 
+.record-nav {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 10px;
+  min-width: 0;
+}
+
 .record-slider {
   accent-color: var(--qn-color-accent);
   cursor: pointer;
@@ -601,8 +609,30 @@ input {
 }
 
 @media (max-width: 640px) {
+  .record-bar {
+    display: grid;
+    gap: 8px 10px;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .record-nav {
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .record-nav .record-step {
+    flex: 0 0 36px;
+  }
+
+  .record-latest {
+    justify-self: start;
+  }
+
   .record-label {
     font-size: 11px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 
