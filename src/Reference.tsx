@@ -1,6 +1,7 @@
 import { Check, Copy } from 'lucide-react';
 import { useEffect, useState, type MouseEvent } from 'react';
 import { copyTextToClipboard } from './clipboard';
+import { RESOURCE_READY_TIMEOUT_MS, RESOURCE_READY_POLL_MS } from './qdnResource';
 import {
   APP_RESOURCE,
   DATABASE_INDEX_FILENAME,
@@ -287,6 +288,13 @@ export function Reference() {
               equivalent to a confirmed absence.
             </p>
             <p>
+              Before reading the database, the viewer requests <code>GET_QDN_RESOURCE_STATUS</code> with{' '}
+              <code>build: true</code> and waits for <code>READY</code>, checking every{' '}
+              {RESOURCE_READY_POLL_MS / 1000} seconds for up to {RESOURCE_READY_TIMEOUT_MS / 1000} seconds.
+              Download progress stays visible; switching workspaces or starting another load cancels the wait.
+              A timeout offers Refresh or a different host node instead of treating partial data as ready.
+            </p>
+            <p>
               A failed <code>{DATABASE_INDEX_FILENAME}</code> lookup falls through to{' '}
               <code>{DATABASE_LATEST_FILENAME}</code>. If the initial latest or snapshot load also fails, the current{' '}
               viewer shows bundled sample data with an error notice. If a selected historical snapshot fails, the viewer{' '}
@@ -321,7 +329,7 @@ export function Reference() {
               its exact action.
             </p>
             <p>
-              Network uses{' '}<code>FETCH_QDN_RESOURCE</code> for data, with{' '}<code>LIST_QDN_RESOURCES</code> available for
+              Network uses{' '}<code>GET_QDN_RESOURCE_STATUS</code> for readiness and <code>FETCH_QDN_RESOURCE</code> for data, with{' '}<code>LIST_QDN_RESOURCES</code> available for
               discovery/status inspection and <code>FETCH_NODE_API</code>/<code>GET_NODE_STATUS</code> available only for
               read-only local development behavior. Each fetch forwards a{' '}
               <code>{NETWORK_VIEWER_MAX_BYTES.toLocaleString()}-byte</code> ceiling. Home enforces that limit externally;{' '}

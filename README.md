@@ -17,6 +17,7 @@ The React viewer currently provides:
   Left/Right Arrow keyboard shortcuts;
 - durable historical-snapshot URLs that participate in Home Back/Forward
   navigation while keeping the latest snapshot at the canonical app URL;
+- visible QDN download progress with a bounded readiness wait and readable node errors;
 - bundled sample data when published QDN data cannot be loaded;
 - a Developers workspace with copyable schemas, resource examples, reader
   behavior, and collector/publication boundaries.
@@ -26,6 +27,13 @@ The app loads `latest.json`, `index.json`, and historical snapshot files from
 browser it performs the same read-only requests against
 `http://127.0.0.1:24891` by default. Set `VITE_QORTIUM_NODE_API_URL` to use a
 different development node.
+
+Before reading the database, Network requests `GET_QDN_RESOURCE_STATUS` with
+`build: true` and waits up to 90 seconds for `READY`, polling every 3 seconds.
+Nodes can know about a publication before all its chunks are downloaded. The
+viewer shows that progress, cancels superseded waits, and offers Refresh or a
+different host node if availability does not recover. Qortal Core/Hub errors
+are normalized from their structured error objects into readable messages.
 
 Historical links use `?snapshot=YYYYMMDDTHHMMSSZ`, matching an indexed file at
 `snapshots/<snapshotId>.json`. The bounded DATABASE history currently retains
