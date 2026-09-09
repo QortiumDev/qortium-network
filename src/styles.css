@@ -1160,11 +1160,12 @@ input {
   }
 
   .top-actions {
+    flex-wrap: wrap;
     width: 100%;
   }
 
   .icon-button {
-    flex: 1 1 0;
+    flex: 1 1 auto;
     min-width: 0;
     padding-inline: 8px;
     white-space: normal;
