@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import Reference from './Reference';
+import { createGraphModel, parseNetworkSnapshot } from './graphModel';
 import {
   APP_RESOURCE,
   DATABASE_INDEX_FILENAME,
@@ -41,6 +42,12 @@ describe('Network Developers reference', () => {
     expect(markup).toContain('public and durable');
     expect(markup).toContain('bundled sample data');
     expect(markup).toContain('does not substitute the SNAPSHOT resource');
+    expect(markup).toContain('envelope is a non-array object');
+    expect(markup).toContain('Independent clients should validate node and');
+    expect(markup).toContain('reads the full response body');
+    expect(markup).toContain('keeps the previously displayed snapshot');
+    expect(markup).toContain('href="?view=developers#reference-data-model"');
+    expect(markup.match(/id="reference-example-snapshot"/g)).toHaveLength(1);
     expect(markup).toContain('aria-label="Developer reference sections"');
     expect(markup).toContain('aria-live="polite"');
 
@@ -72,6 +79,11 @@ describe('Network Developers reference', () => {
     expect(NETWORK_REFERENCE_EXAMPLES.fetchLatest).toContain(`maxBytes: ${NETWORK_VIEWER_MAX_BYTES}`);
     expect(NETWORK_REFERENCE_EXAMPLES.discoverHistory).toContain('snapshots/');
     expect(NETWORK_REFERENCE_EXAMPLES.capabilities).toContain("'SHOW_ACTIONS'");
+
+    const parsedSnapshot = parseNetworkSnapshot(JSON.parse(NETWORK_REFERENCE_EXAMPLES.snapshot));
+    const graph = createGraphModel(parsedSnapshot);
+    expect(graph.nodes.map((node) => node.id)).toEqual(expect.arrayContaining(['N', 'X:203.0.113.10']));
+    expect(graph.edges.map((edge) => edge.kind)).toEqual(['IP_CHAIN']);
   });
 
   it('keeps duplicated contract values aligned with the Python producer', () => {

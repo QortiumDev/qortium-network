@@ -1,5 +1,5 @@
 import { Check, Copy } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import { copyTextToClipboard } from './clipboard';
 import {
   APP_RESOURCE,
@@ -29,6 +29,35 @@ type CodeExampleProps = {
   id: NetworkReferenceExample;
   label: string;
 };
+
+const REFERENCE_SECTION_IDS = [
+  'reference-data-model',
+  'reference-resources',
+  'reference-authority',
+  'reference-bridge',
+  'reference-examples',
+] as const;
+const REFERENCE_SECTION_LABELS = ['Data model', 'Resources', 'Authority', 'Home bridge', 'Examples'] as const;
+
+function scrollToReferenceSection(id: (typeof REFERENCE_SECTION_IDS)[number]) {
+  const section = document.getElementById(id);
+  const reference = section?.closest<HTMLElement>('.developer-reference');
+  if (section && reference) {
+    // scrollIntoView also scrolls Home's outer document on Android.
+    reference.scrollTop += section.getBoundingClientRect().top - reference.getBoundingClientRect().top;
+  }
+}
+
+function referenceSectionHref(id: (typeof REFERENCE_SECTION_IDS)[number]) {
+  if (typeof window === 'undefined') {
+    return `?view=developers#${id}`;
+  }
+
+  const url = new URL(window.location.href);
+
+  url.hash = id;
+  return `${url.pathname}${url.search}${url.hash}`;
+}
 
 function CodeExample({ id, label }: CodeExampleProps) {
   const [copyState, setCopyState] = useState<'copied' | 'idle' | 'unavailable'>('idle');
@@ -76,27 +105,60 @@ function ReferenceCard({ children, title }: { children: React.ReactNode; title: 
 }
 
 export function Reference() {
+  useEffect(() => {
+    const scrollFromHash = () => {
+      const id = window.location.hash.slice(1);
+
+      if (REFERENCE_SECTION_IDS.includes(id as (typeof REFERENCE_SECTION_IDS)[number])) {
+        scrollToReferenceSection(id as (typeof REFERENCE_SECTION_IDS)[number]);
+      }
+    };
+
+    scrollFromHash();
+    window.addEventListener('hashchange', scrollFromHash);
+    window.addEventListener('popstate', scrollFromHash);
+
+    return () => {
+      window.removeEventListener('hashchange', scrollFromHash);
+      window.removeEventListener('popstate', scrollFromHash);
+    };
+  }, []);
+
+  function handleTocClick(event: MouseEvent<HTMLAnchorElement>, id: (typeof REFERENCE_SECTION_IDS)[number]) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+
+    event.preventDefault();
+    const url = new URL(window.location.href);
+
+    url.hash = id;
+
+    if (window.location.hash !== url.hash) {
+      window.history.pushState({}, '', url);
+    }
+
+    scrollToReferenceSection(id);
+  }
+
   return (
     <article className="developer-reference" dir="ltr" lang="en">
       <header className="reference-hero">
-        <p>Always-English protocol reference</p>
         <h1>Network Developers reference</h1>
         <p>
-          Network publishes an observational view of Qortium Previewnet topology. This page documents the
+          Network publishes an observational view of Qortium Previewnet topology. This page documents the{' '}
           <code>{NETWORK_SCHEMA}</code> contract, public QDN resource layout, and read-only Home bridge behavior.
-        </p>
-        <p>
-          The reference body stays in English so schema names, field names, limits, examples, and action names remain
-          identical for every developer.
         </p>
       </header>
 
       <nav aria-label="Developer reference sections" className="reference-toc">
-        <a href="#reference-data-model">Data model</a>
-        <a href="#reference-resources">Resources</a>
-        <a href="#reference-authority">Authority</a>
-        <a href="#reference-bridge">Home bridge</a>
-        <a href="#reference-examples">Examples</a>
+        {REFERENCE_SECTION_IDS.map((id, index) => {
+          return (
+            <a href={referenceSectionHref(id)} key={id} onClick={(event) => handleTocClick(event, id)}>
+              {REFERENCE_SECTION_LABELS[index]}
+            </a>
+          );
+        })}
       </nav>
 
       <section className="reference-section" id="reference-data-model">
@@ -107,10 +169,12 @@ export function Reference() {
         <div className="reference-grid">
           <ReferenceCard title="Schema marker">
             <p>
-              The producer marks manifests with <code>{NETWORK_SCHEMA}</code>. The index and summary append{' '}
-              <code>.index</code> and <code>.summary</code>. A snapshot payload itself is a structural observation with
-              <code>generatedAt</code>, <code>nodes</code>, <code>errors</code>, and <code>topology</code>; readers must
-              validate that <code>topology.graphNodes</code> is an object and <code>topology.edges</code> is an array.
+              The producer marks manifests with{' '}<code>{NETWORK_SCHEMA}</code>. The index and summary append{' '}
+              <code>.index</code> and <code>.summary</code>. A snapshot payload itself is a structural observation with{' '}
+              <code>generatedAt</code>, <code>nodes</code>, <code>errors</code>, and <code>topology</code>. The current{' '}
+              viewer parser checks only that the envelope is a non-array object, that <code>topology.graphNodes</code>{' '}
+              is truthy, and that <code>topology.edges</code> is an array. Independent clients should validate node and{' '}
+              edge fields more deeply before using the graph.
             </p>
           </ReferenceCard>
           <ReferenceCard title="Snapshot envelope">
@@ -124,7 +188,7 @@ export function Reference() {
           </ReferenceCard>
           <ReferenceCard title="Graph fields and enums">
             <p>
-              Graph nodes carry <code>id</code>, <code>label</code>, <code>kind</code>, and optional role, host, version,
+              Graph nodes carry{' '}<code>id</code>, <code>label</code>, <code>kind</code>, and optional role, host, version,
               country, counts, and observation links. Edges carry <code>source</code>, <code>target</code>,{' '}
               <code>kind</code>, <code>count</code>, and peer samples. Current edge kinds are{' '}
               {NETWORK_EDGE_KINDS.map((kind) => <code key={kind}>{kind} </code>)}.
@@ -135,10 +199,7 @@ export function Reference() {
             </p>
           </ReferenceCard>
         </div>
-        <div className="reference-code">
-          <div className="reference-code__toolbar"><strong>Complete snapshot example</strong></div>
-          <pre><code>{NETWORK_REFERENCE_EXAMPLES.snapshot}</code></pre>
-        </div>
+        <CodeExample id="snapshot" label="Complete snapshot example" />
       </section>
 
       <section className="reference-section" id="reference-resources">
@@ -167,8 +228,8 @@ export function Reference() {
               <code>{DATABASE_LATEST_FILENAME}</code> or the selected historical snapshot.
             </p>
             <p>
-              The index is newest first. The producer targets <code>{NETWORK_HISTORY_LIMIT.toLocaleString()} retained records</code>,
-              but force-appends the current slug when it falls outside the retained slice, so a boundary run can contain
+              The index is newest first. The producer targets{' '}<code>{NETWORK_HISTORY_LIMIT.toLocaleString()} retained records</code>,
+              but force-appends the current slug when it falls outside the retained slice, so a boundary run can contain{' '}
               <code>{NETWORK_HISTORY_LIMIT + 1} records</code>.
             </p>
           </ReferenceCard>
@@ -221,14 +282,16 @@ export function Reference() {
           </ReferenceCard>
           <ReferenceCard title="Errors, omissions, and fallback">
             <p>
-              Endpoint failures are recorded under <code>errors</code> for the affected operator. I2P-only peers cannot
+              Endpoint failures are recorded under{' '}<code>errors</code> for the affected operator. I2P-only peers cannot
               be dialed through a clearnet API and may remain observed-only. Missing fields and empty arrays are not
               equivalent to a confirmed absence.
             </p>
             <p>
-              If the DATABASE load fails, the current viewer shows bundled sample data and an error notice. The viewer
-              does not substitute the SNAPSHOT resource for DATABASE. This fallback is a UI continuity aid and has no
-              authority over live or published topology.
+              A failed <code>{DATABASE_INDEX_FILENAME}</code> lookup falls through to{' '}
+              <code>{DATABASE_LATEST_FILENAME}</code>. If the initial latest or snapshot load also fails, the current{' '}
+              viewer shows bundled sample data with an error notice. If a selected historical snapshot fails, the viewer{' '}
+              keeps the previously displayed snapshot and reports the error. It does not substitute the SNAPSHOT resource{' '}
+              for DATABASE; these are UI continuity behaviors with no authority over published topology.
             </p>
           </ReferenceCard>
           <ReferenceCard title="Publication lifecycle">
@@ -258,16 +321,18 @@ export function Reference() {
               its exact action.
             </p>
             <p>
-              Network uses <code>FETCH_QDN_RESOURCE</code> for data, with <code>LIST_QDN_RESOURCES</code> available for
+              Network uses{' '}<code>FETCH_QDN_RESOURCE</code> for data, with{' '}<code>LIST_QDN_RESOURCES</code> available for
               discovery/status inspection and <code>FETCH_NODE_API</code>/<code>GET_NODE_STATUS</code> available only for
-              read-only local development behavior. Each fetch forwards a <code>{NETWORK_VIEWER_MAX_BYTES.toLocaleString()}-byte</code>
-              ceiling. It has no account, signing, payment, or publish bridge action.
+              read-only local development behavior. Each fetch forwards a{' '}
+              <code>{NETWORK_VIEWER_MAX_BYTES.toLocaleString()}-byte</code> ceiling. Home enforces that limit externally;{' '}
+              the plain-browser fallback reads the full response body before checking its UTF-8 byte length. It has no{' '}
+              account, signing, payment, or publish bridge action.
             </p>
           </ReferenceCard>
           <ReferenceCard title="Runtime boundaries">
             <p>
-              Inside Qortium Home, <code>window.qdnRequest</code> is the host bridge. In a plain browser, the app falls
-              back to the configured local node URL (default <code>http://127.0.0.1:24891</code>) for read-only requests.
+              Inside Qortium Home, <code>window.qdnRequest</code> is the host bridge. In a plain browser, the app falls{' '}
+              back to the configured local node URL (default{' '}<code>http://127.0.0.1:24891</code>) for read-only requests.
               A browser fallback does not establish QDN publication authority.
             </p>
             <p>
@@ -299,7 +364,6 @@ export function Reference() {
         </div>
         <div className="reference-grid">
           <CodeExample id="publishData" label="Generate and publish topology data" />
-          <CodeExample id="snapshot" label="Point-in-time payload" />
         </div>
       </section>
     </article>

@@ -1,5 +1,7 @@
 export interface ClipboardDependencies {
-  document?: Pick<Document, 'body' | 'createElement' | 'execCommand'>;
+  document?: Pick<Document, 'body' | 'createElement' | 'execCommand'> & {
+    activeElement?: { focus?: (options?: FocusOptions) => void } | null;
+  };
   navigator?: {
     clipboard?: {
       writeText?: (text: string) => Promise<void> | void;
@@ -32,6 +34,7 @@ function copyTextWithTextarea(text: string, documentRef: ClipboardDependencies['
   }
 
   const textarea = documentRef.createElement('textarea');
+  const previousActiveElement = documentRef.activeElement;
   textarea.value = text;
   textarea.setAttribute('readonly', '');
   textarea.style.left = '-9999px';
@@ -49,5 +52,6 @@ function copyTextWithTextarea(text: string, documentRef: ClipboardDependencies['
     return false;
   } finally {
     documentRef.body.removeChild(textarea);
+    previousActiveElement?.focus?.({ preventScroll: true });
   }
 }

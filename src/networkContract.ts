@@ -158,11 +158,11 @@ npm run qdn:publish:data
   "generatedAt": "2026-09-08T13:27:07.038931+00:00",
   "errors": {},
   "nodes": {
-    "netcup": {
+    "example-seed": {
       "label": "N",
-      "name": "Netcup",
+      "name": "ExampleSeed",
       "role": "seed",
-      "publicHost": "185.207.104.78",
+      "publicHost": "198.51.100.10",
       "info": {
         "nodeId": "node-id-from-admin-info",
         "buildVersion": "qortium-1.8.0-05cbc08"
@@ -208,7 +208,7 @@ npm run qdn:publish:data
     "frontierRemaining": []
   },
   "topology": {
-    "namedLabels": { "netcup": "N" },
+    "namedLabels": { "example-seed": "N" },
     "graphNodes": {
       "N": {
         "id": "N",
@@ -216,8 +216,8 @@ npm run qdn:publish:data
         "kind": "operator",
         "group": "operator",
         "role": "seed",
-        "name": "Netcup",
-        "host": "185.207.104.78",
+        "name": "ExampleSeed",
+        "host": "198.51.100.10",
         "chainCount": 1,
         "dataCount": 1,
         "peerCount": 2,
@@ -225,10 +225,42 @@ npm run qdn:publish:data
         "height": 122570,
         "version": "qortium-1.8.0-05cbc08",
         "observedBy": []
+      },
+      "X:203.0.113.10": {
+        "id": "X:203.0.113.10",
+        "label": "P1",
+        "kind": "observed",
+        "role": "peer",
+        "host": "203.0.113.10",
+        "group": "both",
+        "chainCount": 1,
+        "dataCount": 1,
+        "peerCount": 2,
+        "nodeIds": ["peer-node-id"],
+        "version": "qortium-1.8.0-05cbc08",
+        "connectedTo": ["N"],
+        "observedBy": ["N"]
       }
     },
     "extraNodes": {},
-    "edges": []
+    "edges": [
+      {
+        "source": "N",
+        "target": "X:203.0.113.10",
+        "kind": "IP_CHAIN",
+        "count": 1,
+        "samples": [
+          {
+            "reportedBy": "example-seed",
+            "direction": "OUTBOUND",
+            "address": "203.0.113.10:24892",
+            "transport": "IP",
+            "version": "qortium-1.8.0-05cbc08",
+            "nodeId": "peer-node-id"
+          }
+        ]
+      }
+    ]
   }
 }`,
   manifest: `{
@@ -253,7 +285,7 @@ npm run qdn:publish:data
     "records/summary.json",
     "records/topology.json",
     "records/errors.json",
-    "records/nodes/netcup.json",
+    "records/nodes/example-seed.json",
     "snapshots/20260908T132707Z.json"
   ]
 }`,
@@ -293,11 +325,11 @@ npm run qdn:publish:data
   "errors": {},
   "operators": [
     {
-      "key": "netcup",
+      "key": "example-seed",
       "label": "N",
-      "name": "Netcup",
+      "name": "ExampleSeed",
       "role": "seed",
-      "publicHost": "185.207.104.78",
+      "publicHost": "198.51.100.10",
       "buildVersion": "qortium-1.8.0-05cbc08",
       "nodeId": "node-id-from-admin-info",
       "height": 122570,
@@ -309,7 +341,7 @@ npm run qdn:publish:data
   ]
 }`,
   topology: `{
-  "namedLabels": { "netcup": "N" },
+  "namedLabels": { "example-seed": "N" },
   "graphNodes": {
     "N": {
       "id": "N",
@@ -317,8 +349,8 @@ npm run qdn:publish:data
       "kind": "operator",
       "group": "operator",
       "role": "seed",
-      "name": "Netcup",
-      "host": "185.207.104.78",
+      "name": "ExampleSeed",
+      "host": "198.51.100.10",
       "chainCount": 1,
       "dataCount": 1,
       "peerCount": 2,
@@ -353,7 +385,7 @@ npm run qdn:publish:data
       "count": 1,
       "samples": [
         {
-          "reportedBy": "netcup",
+          "reportedBy": "example-seed",
           "direction": "OUTBOUND",
           "address": "203.0.113.10:24892",
           "transport": "IP",

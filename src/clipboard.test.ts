@@ -21,6 +21,14 @@ function mockDocument(execCommandResult: boolean) {
   };
 }
 
+function mockDocumentWithActiveElement(execCommandResult: boolean) {
+  const documentRef = mockDocument(execCommandResult);
+  return {
+    ...documentRef,
+    activeElement: { focus: vi.fn() },
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -45,6 +53,16 @@ describe('copyTextToClipboard', () => {
     expect(fallbackDocument.createElement).toHaveBeenCalledWith('textarea');
     expect(fallbackDocument.execCommand).toHaveBeenCalledWith('copy');
     expect(fallbackDocument.body.removeChild).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores focus to the invoking element after fallback copy', async () => {
+    const fallbackDocument = mockDocumentWithActiveElement(true);
+    const dependencies: ClipboardDependencies = {
+      document: fallbackDocument as unknown as ClipboardDependencies['document'],
+    };
+
+    await expect(copyTextToClipboard('Fallback code', dependencies)).resolves.toBe(true);
+    expect(fallbackDocument.activeElement.focus).toHaveBeenCalledWith({ preventScroll: true });
   });
 
   it('falls back after rejection and reports unavailable when selection copy fails', async () => {
