@@ -717,43 +717,45 @@ export function App() {
       {records.length > 1 ? (
         <section className="record-bar" aria-label="Snapshot history">
           <History size={16} />
-          <button
-            className="icon-button secondary record-step"
-            type="button"
-            onClick={() => selectRecord(records[Math.min(records.length - 1, selectedIndex + 1)]!.snapshotId)}
-            disabled={loading || selectedIndex >= records.length - 1}
-            aria-label="Older record"
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <input
-            className="record-slider"
-            type="range"
-            min={0}
-            max={records.length - 1}
-            value={records.length - 1 - selectedIndex}
-            disabled={loading}
-            onChange={(event) => {
-              const index = records.length - 1 - Number(event.target.value);
-              const record = records[index];
+          <div className="record-nav">
+            <button
+              className="icon-button secondary record-step"
+              type="button"
+              onClick={() => selectRecord(records[Math.min(records.length - 1, selectedIndex + 1)]!.snapshotId)}
+              disabled={loading || selectedIndex >= records.length - 1}
+              aria-label="Older record"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <input
+              className="record-slider"
+              type="range"
+              min={0}
+              max={records.length - 1}
+              value={records.length - 1 - selectedIndex}
+              disabled={loading}
+              onChange={(event) => {
+                const index = records.length - 1 - Number(event.target.value);
+                const record = records[index];
 
-              if (record) {
-                void selectRecord(record.snapshotId);
-              }
-            }}
-            aria-label="Select snapshot by time"
-          />
+                if (record) {
+                  void selectRecord(record.snapshotId);
+                }
+              }}
+              aria-label="Select snapshot by time"
+            />
+            <button
+              className="icon-button secondary record-step"
+              type="button"
+              onClick={() => selectRecord(records[Math.max(0, selectedIndex - 1)]!.snapshotId)}
+              disabled={loading || selectedIndex <= 0}
+              aria-label="Newer record"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
           <button
-            className="icon-button secondary record-step"
-            type="button"
-            onClick={() => selectRecord(records[Math.max(0, selectedIndex - 1)]!.snapshotId)}
-            disabled={loading || selectedIndex <= 0}
-            aria-label="Newer record"
-          >
-            <ChevronRight size={18} />
-          </button>
-          <button
-            className="icon-button secondary"
+            className="icon-button secondary record-latest"
             type="button"
             onClick={() => selectRecord(records[0]!.snapshotId)}
             disabled={loading || selectedIndex <= 0}
