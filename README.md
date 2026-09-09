@@ -35,6 +35,25 @@ to the latest retained record after its snapshot is pruned.
 The viewer supports Classic and Modern QDN UI styles, along with Home theme,
 accent, and text-size settings. It does not define a Fun style.
 
+## Qortal deployment
+
+Build the Qortal artifact with `npm run build:qortal` (`dist-qortal/`). Its
+publisher identity is `APP/xnetwork/default` and it reads
+`DATABASE/xnetwork/Network`. It shows the same **Qortium topology**, not Qortal
+peers. The normal `npm run build` remains the Qortium artifact in `dist/`.
+
+Each artifact records its hosting network in `qortium-app.json`. Deployment
+configuration selects both the data identity and bridge (`qdnRequest` on
+Qortium, lexical/window `qortalRequest` on Qortal). Do not choose the network
+from bridge presence: Home exposes both. Do not publish the Qortium artifact
+to Qortal or the Qortal artifact to Qortium. Plain-browser Qortal development
+uses local port 12391, configurable with `VITE_QORTAL_NODE_API_URL`.
+
+Developers navigation is omitted in the Qortal artifact. Direct Developers
+aliases and Back/Forward normalize to Network while retaining valid snapshot
+selection, other query parameters and fragments. The Qortium reference stays
+available. Both deployments retain the Qortium topology heading.
+
 ## Developers reference
 
 Open `qdn://APP/Network/Network?view=developers` or choose **Developers** in
@@ -54,7 +73,7 @@ including shallow viewer validation and separate DATABASE/SNAPSHOT transactions.
 
 ## QAVS
 
-The app is at QAVS `1.4.3`: `1.4` is the minimum Qortium platform level and the
+The app is at QAVS `1.4.4`: `1.4` is the minimum Qortium platform level and the
 patch number is the app release. `vite.config.ts` reads `package.json`, injects
 the visible version badge, and emits `dist/qortium-app.json` with the name
 `Network` and the current version during every build.
@@ -80,6 +99,12 @@ The publisher reads `dist/`, uses the local Core at
 `~/qortium/git/qortium-core/preview/secrets/initial-minting-accounts.json`.
 Overrides use the `QORTIUM_NETWORK_` prefix. The render URL is
 `http://127.0.0.1:24891/render/APP/Network/Network`.
+
+## Publish the same data on both QDNs
+
+See [dual QDN publishing](docs/dual-qdn-publishing.md) for opt-in Qortal
+configuration, legacy state migration, per-destination receipts, recovery and
+the separate Qortal app publication command.
 
 ## Collect topology data
 

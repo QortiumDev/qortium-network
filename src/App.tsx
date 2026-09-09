@@ -28,6 +28,7 @@ import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDi
 import { countryName, flagUrl } from './flags';
 import networkIconUrl from './assets/brand/qortium-network-icon.png';
 import { qdnRequest } from './qdnRequest';
+import { DEVELOPERS_ENABLED, RUNTIME_DATABASE_RESOURCE as QDN_RESOURCE } from './qdnRuntime';
 import {
   getCanonicalNetworkRoute,
   getNetworkRouteUrl,
@@ -36,7 +37,7 @@ import {
 } from './networkRoute';
 import { sampleSnapshot } from './sampleData';
 import { Reference } from './Reference';
-import { QDN_RESOURCE, NETWORK_VIEWER_MAX_BYTES, DATABASE_LATEST_FILENAME, DATABASE_INDEX_FILENAME } from './networkContract';
+import { NETWORK_VIEWER_MAX_BYTES, DATABASE_LATEST_FILENAME, DATABASE_INDEX_FILENAME } from './networkContract';
 import type { NetworkView } from './networkRoute';
 import { useAnimatedGraph } from './useAnimatedGraph';
 import { useGraphViewport } from './useGraphViewport';
@@ -309,7 +310,7 @@ async function loadRecordIndex(): Promise<RecordEntry[]> {
 }
 
 export function App() {
-  const [view, setView] = useState<NetworkView>(() => readNetworkRoute(window.location.href).view ?? 'network');
+  const [view, setView] = useState<NetworkView>(() => readNetworkRoute(window.location.href, DEVELOPERS_ENABLED).view ?? 'network');
   const [snapshot, setSnapshot] = useState<NetworkSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -536,14 +537,15 @@ export function App() {
   }, [records, selectedSlug]);
 
   useEffect(() => {
-    const initialRoute = readNetworkRoute(window.location.href);
+    const initialRoute = readNetworkRoute(window.location.href, DEVELOPERS_ENABLED);
     window.history.replaceState({}, '', getNetworkRouteUrl(window.location.href, initialRoute));
     if (initialRoute.view !== 'developers') void loadRecordsForRoute(initialRoute.snapshotId, 'replace');
   }, [loadRecordsForRoute]);
 
   useEffect(() => {
     function onPopState() {
-      const route = readNetworkRoute(window.location.href);
+      const route = readNetworkRoute(window.location.href, DEVELOPERS_ENABLED);
+      window.history.replaceState({}, '', getNetworkRouteUrl(window.location.href, route));
       setView(route.view ?? 'network');
       setControlsOpen(false);
       setDetail(null);
@@ -653,10 +655,10 @@ export function App() {
   }
 
   function navigateWorkspace(next: NetworkView) {
-    if (next === view) {
+    if ((next === 'developers' && !DEVELOPERS_ENABLED) || next === view) {
       return;
     }
-    const route = { ...readNetworkRoute(window.location.href), view: next };
+    const route = { ...readNetworkRoute(window.location.href, DEVELOPERS_ENABLED), view: next };
     ++loadSequenceRef.current; // A pending topology read must not overwrite the Developers URL.
     setView(next);
     setControlsOpen(false);
@@ -681,7 +683,7 @@ export function App() {
     <main className="app-shell">
       <nav className="workspace-nav" aria-label="Network workspaces">
         <button type="button" aria-current={view === 'network' ? 'page' : undefined} onClick={() => navigateWorkspace('network')}>Network</button>
-        <button type="button" aria-current={view === 'developers' ? 'page' : undefined} onClick={() => navigateWorkspace('developers')}>Developers</button>
+        {DEVELOPERS_ENABLED && <button type="button" aria-current={view === 'developers' ? 'page' : undefined} onClick={() => navigateWorkspace('developers')}>Developers</button>}
       </nav>
       {view === 'developers' ? <Reference /> : <>
       <header className="top-bar">

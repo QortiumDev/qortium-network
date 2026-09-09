@@ -153,7 +153,7 @@ function getRunningLocalCoreApiKeyPath(nodeApiUrl) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 
-function decodeBase58(value) {
+export function decodeBase58(value) {
   let decoded = 0n;
 
   for (const character of value) {
@@ -184,7 +184,7 @@ function decodeBase58(value) {
   return Buffer.from(bytes);
 }
 
-function encodeBase58(bytes) {
+export function encodeBase58(bytes) {
   let value = 0n;
 
   for (const byte of bytes) {
@@ -254,7 +254,7 @@ function buildRegisterNameRawBytes58({ account, data, name, timestamp }) {
   );
 }
 
-function appendQuery(pathname, query) {
+export function appendQuery(pathname, query) {
   const queryParams = new URLSearchParams();
 
   for (const [key, value] of Object.entries(query)) {
@@ -270,7 +270,7 @@ function appendQuery(pathname, query) {
   return queryString ? `${pathname}?${queryString}` : pathname;
 }
 
-function buildConfig() {
+export function buildConfig() {
   const nodeApiUrl = (readEnv('NODE_API_URL') ?? DEFAULT_NODE_API_URL).replace(/\/+$/, '');
   const apiKeyPath = expandHomePath(readEnv('NODE_API_KEY_PATH') ?? '~/.config/qortium-core/runtime/apikey.txt');
   const previewAccountsPath = expandHomePath(
@@ -284,7 +284,7 @@ function buildConfig() {
   };
 }
 
-function getApiKey(config) {
+export function getApiKey(config) {
   const explicitApiKey = readEnv('NODE_API_KEY')?.trim();
 
   if (explicitApiKey) {
@@ -304,7 +304,7 @@ function getApiKey(config) {
   return readText(config.apiKeyPath);
 }
 
-function getLocalPreviewAccount(config) {
+export function getLocalPreviewAccount(config) {
   const previewAccounts = readJson(config.previewAccountsPath);
   const accountRole = readEnv('PREVIEW_ACCOUNT_ROLE') ?? 'local';
   const account = previewAccounts.accounts?.find((item) => item.role === accountRole);
@@ -316,9 +316,10 @@ function getLocalPreviewAccount(config) {
   return account;
 }
 
-async function request(config, apiKey, pathname, options = {}) {
+export async function request(config, apiKey, pathname, options = {}) {
   const response = await fetch(`${config.nodeApiUrl}${pathname}`, {
     ...options,
+    signal: options.signal ?? AbortSignal.timeout(180000),
     headers: {
       ...(apiKey ? { 'X-API-KEY': apiKey } : {}),
       ...(options.headers ?? {}),
@@ -327,19 +328,19 @@ async function request(config, apiKey, pathname, options = {}) {
   const text = await response.text();
 
   if (!response.ok) {
-    throw new Error(text || `${options.method ?? 'GET'} ${pathname} failed with HTTP ${response.status}.`);
+    throw Object.assign(new Error(text || `${options.method ?? 'GET'} ${pathname} failed with HTTP ${response.status}.`), { status: response.status });
   }
 
   return text;
 }
 
-async function requestJson(config, apiKey, pathname, options = {}) {
+export async function requestJson(config, apiKey, pathname, options = {}) {
   const text = await request(config, apiKey, pathname, options);
 
   return text ? JSON.parse(text) : null;
 }
 
-async function waitFor(label, predicate) {
+export async function waitFor(label, predicate) {
   const startedAt = Date.now();
   let lastError;
 
@@ -427,7 +428,12 @@ function signTransactionLocally(rawUnsignedWithNonce58, privateKey58) {
   return encodeBase58(Buffer.concat([message, signature]));
 }
 
-async function signAndProcess(config, apiKey, rawUnsignedBytes58, privateKey58, computePath = '/arbitrary/compute') {
+/**
+ * Add the mempow nonce and sign locally, without broadcasting. Split out from
+ * `signAndProcess` so callers that must persist a signature *before* it reaches
+ * the network (the dual-target publisher) can do so.
+ */
+export async function computeAndSign(config, apiKey, rawUnsignedBytes58, privateKey58, computePath = '/arbitrary/compute') {
   const rawUnsignedWithNonce58 = await request(config, apiKey, computePath, {
     method: 'POST',
     headers: {
@@ -435,7 +441,11 @@ async function signAndProcess(config, apiKey, rawUnsignedBytes58, privateKey58, 
     },
     body: rawUnsignedBytes58,
   });
-  const signedBytes58 = signTransactionLocally(rawUnsignedWithNonce58, privateKey58);
+
+  return signTransactionLocally(rawUnsignedWithNonce58, privateKey58);
+}
+
+export async function broadcastSigned(config, apiKey, signedBytes58) {
   const processResult = await request(config, apiKey, '/transactions/process', {
     method: 'POST',
     headers: {
@@ -447,6 +457,14 @@ async function signAndProcess(config, apiKey, rawUnsignedBytes58, privateKey58, 
   if (processResult.trim() !== 'true' && !processResult.includes('"type"')) {
     throw new Error(`Transaction was not accepted: ${processResult}`);
   }
+
+  return processResult;
+}
+
+async function signAndProcess(config, apiKey, rawUnsignedBytes58, privateKey58, computePath = '/arbitrary/compute') {
+  const signedBytes58 = await computeAndSign(config, apiKey, rawUnsignedBytes58, privateKey58, computePath);
+
+  await broadcastSigned(config, apiKey, signedBytes58);
 
   return signedBytes58;
 }
@@ -467,7 +485,7 @@ async function getNameInfo(config, name) {
   return JSON.parse(text);
 }
 
-async function ensureNameRegistered(config, apiKey, name, account) {
+export async function ensureNameRegistered(config, apiKey, name, account) {
   const existingName = await getNameInfo(config, name);
 
   if (existingName) {
@@ -501,7 +519,7 @@ async function ensureNameRegistered(config, apiKey, name, account) {
   console.log(`Name registered: ${name}`);
 }
 
-async function getResourceStatus(config, apiKey, resource) {
+export async function getResourceStatus(config, apiKey, resource) {
   return requestJson(
     config,
     apiKey,

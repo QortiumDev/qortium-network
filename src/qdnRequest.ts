@@ -1,6 +1,8 @@
 import type { NodeApiFetchResult, QdnAction } from './types';
+import { HOSTING_NETWORK } from './qdnRuntime';
+import { getInjectedQortalRequest } from './qortalGlobal';
 
-const DEFAULT_NODE_API_URL = 'http://127.0.0.1:24891';
+const DEFAULT_NODE_API_URL = HOSTING_NETWORK === 'qortal' ? 'http://127.0.0.1:12391' : 'http://127.0.0.1:24891';
 
 export const LOCAL_READ_ACTIONS = [
   'FETCH_NODE_API',
@@ -22,7 +24,8 @@ type QdnRequest = {
 };
 
 export function getNodeApiUrl() {
-  return (import.meta.env.VITE_QORTIUM_NODE_API_URL || DEFAULT_NODE_API_URL).replace(/\/+$/, '');
+  const configured = HOSTING_NETWORK === 'qortal' ? import.meta.env.VITE_QORTAL_NODE_API_URL : import.meta.env.VITE_QORTIUM_NODE_API_URL;
+  return (configured || DEFAULT_NODE_API_URL).replace(/\/+$/, '');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -212,7 +215,32 @@ async function fallbackQdnRequest<T>(request: QdnRequest): Promise<T> {
 }
 
 export function hasHomeBridge() {
-  return typeof window !== 'undefined' && typeof window.qdnRequest === 'function';
+  return HOSTING_NETWORK === 'qortal' ? !!getInjectedQortalRequest() : typeof window !== 'undefined' && typeof window.qdnRequest === 'function';
+}
+
+export function normalizeQdnJson(value: unknown, maxBytes?: number): unknown {
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  if (maxBytes && typeof text === 'string' && new TextEncoder().encode(text).byteLength > maxBytes) {
+    throw new Error(`QDN response exceeded the ${maxBytes.toLocaleString()} byte limit.`);
+  }
+  const parsed = typeof value === 'string' ? parseResponseData(value, 'application/json') : value;
+  if (isRecord(parsed) && parsed.error != null && parsed.error !== false) {
+    throw new Error(typeof parsed.message === 'string' ? parsed.message : String(parsed.error));
+  }
+  return parsed;
+}
+
+export function qortalReadRequest(request: QdnRequest): QdnRequest {
+  const action = request.action.toUpperCase();
+  if (action === 'FETCH_QDN_RESOURCE') {
+    const { path, maxBytes: _maxBytes, ...rest } = request;
+    return { ...rest, action, filepath: path ?? request.filepath };
+  }
+  if (action === 'SEARCH_QDN_RESOURCES' || action === 'LIST_QDN_RESOURCES') {
+    const { maxBytes: _maxBytes, ...rest } = request;
+    return { ...rest, action: 'SEARCH_QDN_RESOURCES' };
+  }
+  throw new Error(`${request.action} is not supported by the Qortal read adapter.`);
 }
 
 export async function qdnRequest<T = unknown>(request: QdnRequest): Promise<T> {
@@ -220,16 +248,20 @@ export async function qdnRequest<T = unknown>(request: QdnRequest): Promise<T> {
     throw new Error('QDN requests must include an action.');
   }
 
-  const bridgeRequest = typeof window !== 'undefined' ? window.qdnRequest : undefined;
+  const bridgeRequest = HOSTING_NETWORK === 'qortal'
+    ? getInjectedQortalRequest()
+    : typeof window !== 'undefined' ? window.qdnRequest : undefined;
 
   if (typeof bridgeRequest === 'function') {
-    return bridgeRequest<T>(request);
+    const result = await bridgeRequest<unknown>(HOSTING_NETWORK === 'qortal' ? qortalReadRequest(request) : request);
+    return (request.action.toUpperCase() === 'FETCH_QDN_RESOURCE' ? normalizeQdnJson(result, request.maxBytes) : result) as T;
   }
 
   return fallbackQdnRequest<T>(request);
 }
 
 export async function getAvailableActions(): Promise<QdnAction[]> {
+  if (HOSTING_NETWORK === 'qortal' && hasHomeBridge()) return ['FETCH_QDN_RESOURCE', 'SEARCH_QDN_RESOURCES', 'LIST_QDN_RESOURCES'];
   try {
     const actions = await qdnRequest<unknown>({ action: 'SHOW_ACTIONS' });
 

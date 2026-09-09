@@ -9,14 +9,14 @@ export interface NetworkRoute {
 
 const SNAPSHOT_QUERY_PARAM = 'snapshot';
 
-export function readNetworkRoute(input: string | URL): NetworkRoute {
+export function readNetworkRoute(input: string | URL, developersEnabled = true): NetworkRoute {
   const url = input instanceof URL ? input : new URL(input, 'http://localhost');
   const snapshotId = url.searchParams.get(SNAPSHOT_QUERY_PARAM);
 
   const requestedView = url.searchParams.get('view')?.trim().toLowerCase();
 
   return {
-    ...(requestedView && ['developers', 'developer', 'reference'].includes(requestedView) ? { view: 'developers' as const } : {}),
+    ...(developersEnabled && requestedView && ['developers', 'developer', 'reference'].includes(requestedView) ? { view: 'developers' as const } : {}),
     snapshotId: snapshotId && NETWORK_SNAPSHOT_ID_PATTERN.test(snapshotId) ? snapshotId : null,
   };
 }
