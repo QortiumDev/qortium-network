@@ -1,22 +1,31 @@
+import { NETWORK_SNAPSHOT_ID_PATTERN } from './networkContract';
+
+export type NetworkView = 'network' | 'developers';
+
 export interface NetworkRoute {
+  view?: NetworkView;
   snapshotId: string | null;
 }
 
 const SNAPSHOT_QUERY_PARAM = 'snapshot';
-const SNAPSHOT_ID_PATTERN = /^\d{8}T\d{6}Z$/;
 
 export function readNetworkRoute(input: string | URL): NetworkRoute {
   const url = input instanceof URL ? input : new URL(input, 'http://localhost');
   const snapshotId = url.searchParams.get(SNAPSHOT_QUERY_PARAM);
 
+  const requestedView = url.searchParams.get('view')?.trim().toLowerCase();
+
   return {
-    snapshotId: snapshotId && SNAPSHOT_ID_PATTERN.test(snapshotId) ? snapshotId : null,
+    ...(requestedView && ['developers', 'developer', 'reference'].includes(requestedView) ? { view: 'developers' as const } : {}),
+    snapshotId: snapshotId && NETWORK_SNAPSHOT_ID_PATTERN.test(snapshotId) ? snapshotId : null,
   };
 }
 
 export function getNetworkRouteUrl(input: string | URL, route: NetworkRoute): URL {
   const url = input instanceof URL ? new URL(input.href) : new URL(input, 'http://localhost');
 
+  url.searchParams.delete('view');
+  if (route.view === 'developers') url.searchParams.set('view', 'developers');
   url.searchParams.delete(SNAPSHOT_QUERY_PARAM);
   if (route.snapshotId) {
     url.searchParams.set(SNAPSHOT_QUERY_PARAM, route.snapshotId);

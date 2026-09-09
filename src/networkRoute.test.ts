@@ -48,3 +48,34 @@ describe('Network routes', () => {
     expect(url.hash).toBe('#graph');
   });
 });
+
+describe('Developers workspace routes', () => {
+  it('accepts aliases and gives Developers precedence without losing the selected snapshot', () => {
+    for (const alias of ['developers', 'developer', 'reference', ' Developers ']) {
+      const route = readNetworkRoute(`https://example.test/app?view=${encodeURIComponent(alias)}&snapshot=20260718T040000Z`);
+      expect(route).toEqual({ view: 'developers', snapshotId: '20260718T040000Z' });
+      expect(getNetworkRouteUrl('https://example.test/app', route).searchParams.get('view')).toBe('developers');
+    }
+    expect(readNetworkRoute('https://example.test/app?view=unknown')).toEqual({ snapshotId: null });
+  });
+
+  it('preserves repeated host keys and fragments, and removes duplicate owned keys', () => {
+    const input = 'https://example.test/app?view=reference&view=other&snapshot=old&snapshot=older&homeV2Bridge=1&qdnHomeBridge=token&theme=dark&future=a&future=b#schema';
+    const url = getNetworkRouteUrl(input, { view: 'developers', snapshotId: null });
+    expect(url.searchParams.getAll('view')).toEqual(['developers']);
+    expect(url.searchParams.has('snapshot')).toBe(false);
+    expect(url.searchParams.getAll('future')).toEqual(['a', 'b']);
+    expect(url.searchParams.get('qdnHomeBridge')).toBe('token');
+    expect(url.searchParams.get('homeV2Bridge')).toBe('1');
+    expect(url.searchParams.get('theme')).toBe('dark');
+    expect(url.hash).toBe('#schema');
+    const returned = getNetworkRouteUrl(url, { view: 'network', snapshotId: '20260718T040000Z' });
+    expect(returned.searchParams.has('view')).toBe(false);
+    expect(readNetworkRoute(returned)).toEqual({ snapshotId: '20260718T040000Z' });
+  });
+
+  it('uses the first repeated view value consistently', () => {
+    expect(readNetworkRoute('https://example.test/?view=network&view=developers').view).toBeUndefined();
+    expect(readNetworkRoute('https://example.test/?view=developers&view=network').view).toBe('developers');
+  });
+});

@@ -35,15 +35,13 @@ import {
   resolveNetworkSnapshotId,
 } from './networkRoute';
 import { sampleSnapshot } from './sampleData';
+import { Reference } from './Reference';
+import { QDN_RESOURCE, NETWORK_VIEWER_MAX_BYTES, DATABASE_LATEST_FILENAME, DATABASE_INDEX_FILENAME } from './networkContract';
+import type { NetworkView } from './networkRoute';
 import { useAnimatedGraph } from './useAnimatedGraph';
 import { useGraphViewport } from './useGraphViewport';
 import type { EdgeKind, GraphEdge, GraphNode, NetworkSnapshot } from './types';
 
-const QDN_RESOURCE = {
-  identifier: 'Network',
-  name: 'Network',
-  service: 'DATABASE',
-} as const;
 const APP_VERSION = __APP_VERSION__;
 
 // Rendered while the first real snapshot is still loading, so the graph is empty
@@ -281,7 +279,7 @@ function fetchDatabaseJson(path: string) {
     action: 'FETCH_QDN_RESOURCE',
     async: false,
     identifier: QDN_RESOURCE.identifier,
-    maxBytes: 8_000_000,
+    maxBytes: NETWORK_VIEWER_MAX_BYTES,
     name: QDN_RESOURCE.name,
     path,
     service: QDN_RESOURCE.service,
@@ -289,7 +287,7 @@ function fetchDatabaseJson(path: string) {
 }
 
 async function loadNetworkSnapshot() {
-  return parseNetworkSnapshot(await fetchDatabaseJson('latest.json'));
+  return parseNetworkSnapshot(await fetchDatabaseJson(DATABASE_LATEST_FILENAME));
 }
 
 async function loadSnapshotBySlug(slug: string) {
@@ -298,7 +296,7 @@ async function loadSnapshotBySlug(slug: string) {
 
 // Newest record first. Returns [] when no history index is published yet.
 async function loadRecordIndex(): Promise<RecordEntry[]> {
-  const data = await fetchDatabaseJson('index.json');
+  const data = await fetchDatabaseJson(DATABASE_INDEX_FILENAME);
   const records = (data as { records?: unknown } | null)?.records;
 
   if (!Array.isArray(records)) {
@@ -311,6 +309,7 @@ async function loadRecordIndex(): Promise<RecordEntry[]> {
 }
 
 export function App() {
+  const [view, setView] = useState<NetworkView>(() => readNetworkRoute(window.location.href).view ?? 'network');
   const [snapshot, setSnapshot] = useState<NetworkSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -537,12 +536,23 @@ export function App() {
   }, [records, selectedSlug]);
 
   useEffect(() => {
-    void loadRecordsForRoute(readNetworkRoute(window.location.href).snapshotId, 'replace');
+    const initialRoute = readNetworkRoute(window.location.href);
+    window.history.replaceState({}, '', getNetworkRouteUrl(window.location.href, initialRoute));
+    if (initialRoute.view !== 'developers') void loadRecordsForRoute(initialRoute.snapshotId, 'replace');
   }, [loadRecordsForRoute]);
 
   useEffect(() => {
     function onPopState() {
-      const requestedSnapshotId = readNetworkRoute(window.location.href).snapshotId;
+      const route = readNetworkRoute(window.location.href);
+      setView(route.view ?? 'network');
+      setControlsOpen(false);
+      setDetail(null);
+      ++loadSequenceRef.current;
+      if (route.view === 'developers') {
+        setLoading(false);
+        return;
+      }
+      const requestedSnapshotId = route.snapshotId;
       const targetSnapshotId = resolveNetworkSnapshotId(
         requestedSnapshotId,
         records.map((record) => record.snapshotId),
@@ -597,7 +607,7 @@ export function App() {
   // Arrow keys page through records: Left = older, Right = newer (records[0] is newest).
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+      if (view === 'developers' || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) {
         return;
       }
 
@@ -626,7 +636,7 @@ export function App() {
     return () => {
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [records, selectedIndex, loading, selectRecord]);
+  }, [records, selectedIndex, loading, selectRecord, view]);
 
   function toggleKind(kind: EdgeKind) {
     setVisibleKinds((current) => {
@@ -642,12 +652,38 @@ export function App() {
     });
   }
 
+  function navigateWorkspace(next: NetworkView) {
+    if (next === view) {
+      return;
+    }
+    const route = { ...readNetworkRoute(window.location.href), view: next };
+    ++loadSequenceRef.current; // A pending topology read must not overwrite the Developers URL.
+    setView(next);
+    setControlsOpen(false);
+    setDetail(null);
+    setLoading(false);
+    window.history.pushState({}, '', getNetworkRouteUrl(window.location.href, route));
+    if (next === 'network') {
+      const target = resolveNetworkSnapshotId(route.snapshotId, records.map(record => record.snapshotId));
+      if (target) {
+        void selectRecord(target, 'none');
+      } else {
+        void loadRecordsForRoute(route.snapshotId, 'replace');
+      }
+    }
+  }
+
   function selectNode(nodeId: string) {
     setPinnedNodeId((current) => (current === nodeId ? undefined : nodeId));
   }
 
   return (
     <main className="app-shell">
+      <nav className="workspace-nav" aria-label="Network workspaces">
+        <button type="button" aria-current={view === 'network' ? 'page' : undefined} onClick={() => navigateWorkspace('network')}>Network</button>
+        <button type="button" aria-current={view === 'developers' ? 'page' : undefined} onClick={() => navigateWorkspace('developers')}>Developers</button>
+      </nav>
+      {view === 'developers' ? <Reference /> : <>
       <header className="top-bar">
         <div className="top-bar__brand">
           <span className="top-bar__mark">
@@ -974,6 +1010,7 @@ export function App() {
           </div>
         </div>
       ) : null}
+      </>}
     </main>
   );
 }

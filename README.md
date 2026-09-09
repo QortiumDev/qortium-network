@@ -17,7 +17,9 @@ The React viewer currently provides:
   Left/Right Arrow keyboard shortcuts;
 - durable historical-snapshot URLs that participate in Home Back/Forward
   navigation while keeping the latest snapshot at the canonical app URL;
-- bundled sample data when published QDN data cannot be loaded.
+- bundled sample data when published QDN data cannot be loaded;
+- a Developers workspace with copyable schemas, resource examples, reader
+  behavior, and collector/publication boundaries.
 
 The app loads `latest.json`, `index.json`, and historical snapshot files from
 `DATABASE/Network/Network` through Qortium Home's `qdnRequest` bridge. In a plain
@@ -33,9 +35,26 @@ to the latest retained record after its snapshot is pruned.
 The viewer supports Classic and Modern QDN UI styles, along with Home theme,
 accent, and text-size settings. It does not define a Fun style.
 
+## Developers reference
+
+Open `qdn://APP/Network/Network?view=developers` or choose **Developers** in
+main navigation. The English reference opens without an account or topology
+fetch. `view=developer` and `view=reference` normalize to `view=developers`.
+An accompanying valid `snapshot` is retained for returning to Network;
+workspace navigation preserves other query parameters and fragments, and
+participates in Back/Forward history. Graph arrow shortcuts are inactive in
+Developers. Code blocks remain selectable when clipboard access is unavailable.
+
+The reference imports the viewer's resource/path/size constants from
+`src/networkContract.ts`. Focused tests check its examples with the viewer
+parser/graph model and against the Python producer's schema and retention
+constants. Update
+the reference alongside public-contract changes; it documents current behavior,
+including shallow viewer validation and separate DATABASE/SNAPSHOT transactions.
+
 ## QAVS
 
-The app is at QAVS `1.4.1`: `1.4` is the minimum Qortium platform level and the
+The app is at QAVS `1.4.3`: `1.4` is the minimum Qortium platform level and the
 patch number is the app release. `vite.config.ts` reads `package.json`, injects
 the visible version badge, and emits `dist/qortium-app.json` with the name
 `Network` and the current version during every build.
