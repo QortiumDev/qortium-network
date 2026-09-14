@@ -21,14 +21,14 @@
   "dependencies": {
     "@vitejs/plugin-react": "^6.1.0",
     "lucide-react": "^0.577.0",
-    "react": "^19.2.8",
+    "react": "^19.3.0",
     "react-dom": "^19.2.8",
     "typescript": "^6.0.3",
     "vite": "^8.2.2"
   },
   "devDependencies": {
     "@types/node": "^25.9.5",
-    "@types/react": "^19.2.18",
+    "@types/react": "^19.3.0",
     "@types/react-dom": "^19.2.7",
     "circle-flags": "^2.8.3",
     "vitest": "^4.1.11"
