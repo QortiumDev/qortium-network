@@ -122,11 +122,20 @@ Generate a current snapshot, SVG, and the QDN payload directories with:
 python3 tools/network-topology-data.py --no-png
 ```
 
-The collector starts from the configured seed nodes, then breadth-first probes
+The collector starts from Netcup, the remaining managed seed, then breadth-first probes
 reachable peers through their public read-only APIs. It deduplicates by host and
 node ID, treats missing edges as unknown rather than disconnected, and supports
 `--no-discover`, `--max-hops`, `--max-nodes`, `--api-port`,
 `--probe-timeout`, and `--probe-workers`.
+
+Regxa was retired in October 2026. New collection no longer queries its API,
+SSH or gossip log, and discovery excludes its former IP even if another peer
+still advertises it. Historical snapshots retain the original Regxa records.
+Run with `--local-node netcup` on Netcup to use loopback management reads.
+Each new snapshot's `collection` field identifies its configured operator keys,
+retired operators and excluded probe hosts. Publicly discovered nodes retain
+the `peer` role; a healthy one-operator sample is not independent multi-operator
+consensus. Publisher error/height gates and accumulated history remain in place.
 
 Collection uses `/admin/info`, `/admin/status`, `/peers`, and `/peers/data`; it
 does not inspect private node state. The defaults allow four discovery hops, at

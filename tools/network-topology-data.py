@@ -2,17 +2,17 @@
 """
 Collect Previewnet peer topology from the operator nodes and prepare QDN data.
 
-Collection seeds from the two public VPS seed nodes:
+Collection starts from the remaining managed public VPS seed:
 
   N Netcup seed
-  R Regxa seed
 
 and then breadth-first probes every reachable peer's public HTTP API outward
 from there (--max-hops), deduping by host and by nodeId as it expands. Each
 node that answers becomes a first-class observer whose own /peers list
 contributes edges, so non-seed links — including I2P↔I2P connections that touch
 a reachable node, and nodes several hops from the seeds — are represented
-instead of collapsing onto the two seeds.
+instead of collapsing onto the managed seed. Regxa was retired in October 2026;
+historical snapshots retain its observations, but live collection never requires it.
 
 Privacy boundary: only the voluntary, opt-out HTTP API is queried (read-only
 /admin/info, /admin/status, /peers, /peers/data). I2P-only nodes have no IP in
@@ -174,15 +174,12 @@ NODE_CONFIGS = [
         public_host="185.207.104.78",
         ssh=("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "qortium-netcup"),
     ),
-    NodeConfig(
-        "regxa",
-        "R",
-        "Regxa",
-        "seed",
-        public_host="146.103.42.59",
-        ssh=("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "qortium-regxa"),
-    ),
 ]
+
+# Do not contact an operator's former IP after the VPS has been deleted, even
+# if another observer still advertises that address. Historical data is unchanged.
+RETIRED_OPERATOR_HOSTS = frozenset({"146.103.42.59"})
+RETIRED_OPERATOR_KEYS = ("regxa",)
 
 
 def run_command(args: list[str] | tuple[str, ...], cwd: Path | None, timeout: int) -> str:
@@ -276,7 +273,7 @@ def is_probeable_host(host: str | None) -> bool:
     if not host:
         return False
     lowered = host.lower()
-    if lowered == "localhost" or lowered.endswith(".b32.i2p"):
+    if lowered in RETIRED_OPERATOR_HOSTS or lowered == "localhost" or lowered.endswith(".b32.i2p"):
         return False
     try:
         ip = ipaddress.ip_address(lowered)
@@ -299,7 +296,7 @@ def clearnet_peer_hosts(entry: dict[str, Any]) -> set[str]:
 def make_label_generator(used: set[str]) -> Callable[[], str]:
     """Hand out short, collision-free labels (A, B, ... Z, A1, B1, ...).
 
-    Seed labels (N, R) are pre-reserved by the caller so discovered nodes skip them."""
+    Configured seed labels are pre-reserved so discovered nodes skip them."""
     counter = 0
 
     def next_label() -> str:
@@ -473,13 +470,19 @@ def collect_peer_exchange(
 
 
 def collect_nodes(timeout: int, configs: list[NodeConfig] | None = None) -> dict[str, Any]:
+    configs = NODE_CONFIGS if configs is None else configs
     snapshot: dict[str, Any] = {
         "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "nodes": {},
         "errors": {},
+        "collection": {
+            "operatorKeys": [node.key for node in configs],
+            "retiredOperatorKeys": list(RETIRED_OPERATOR_KEYS),
+            "excludedProbeHosts": sorted(RETIRED_OPERATOR_HOSTS),
+        },
     }
 
-    for node in configs if configs is not None else NODE_CONFIGS:
+    for node in configs:
         entry: dict[str, Any] = {
             "label": node.label,
             "name": node.name,
@@ -518,7 +521,7 @@ def collect_topology(
 
     Each reachable node becomes a first-class observer: its own /peers list
     contributes edges, so non-seed links (including I2P↔I2P touching a reachable
-    node) appear instead of everything collapsing onto the two seeds. I2P-only and
+    node) appear instead of everything collapsing onto the managed seeds. I2P-only and
     API-closed nodes are simply never reached and remain observed-only leaves.
 
     Additionally read each seed's recordPeerExchange JSONL: an I2P node's advertised
@@ -1857,6 +1860,7 @@ def main() -> int:
 
     print(f"Wrote snapshot: {snapshot_path}")
     print(f"Wrote SVG: {svg_path}")
+    print(f"Operators: {', '.join(snapshot['collection']['operatorKeys'])}; retired: {', '.join(RETIRED_OPERATOR_KEYS)}")
     discovery = snapshot.get("discovery") or {}
     if discovery.get("enabled"):
         print(

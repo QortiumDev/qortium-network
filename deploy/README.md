@@ -20,7 +20,7 @@ resource keeps the newest 1000 records, which the in-app browser pages through.
 - synced Qortium Core on `127.0.0.1:24891`
 - `python3`, `curl`, `git`, `ssh`; user lingering enabled
 - the signing account that owns `Network` present in the accounts JSON
-- SSH access to the other seed (`qortium-regxa`)
+- local management API and peer-exchange log access on Netcup
 
 The timers use only Node + Python standard libraries, so **no `npm install` and
 no build** are needed.
@@ -43,21 +43,19 @@ git clone -b record-browser https://github.com/QortiumDev/qortium-network.git ~/
 
 Update later with `git -C ~/qortium-network pull` (or switch to `main` after merge).
 
-## 3. SSH to regxa
+## 3. Managed observer access
 
-The collector queries netcup over localhost and regxa over SSH using the alias
-`qortium-regxa`. Ensure `~/.ssh/config` has:
+The collector queries Netcup over IPv4 loopback when
+`QORTIUM_NETWORK_LOCAL_NODE=netcup`. It reads Netcup's peer-exchange log and
+continues public-peer API discovery. Regxa was retired in October 2026;
+no Regxa SSH alias, account or API is needed, and its former IP is excluded
+from discovery probes. Existing historical Regxa records are retained.
 
-```
-Host qortium-regxa
-    HostName 146.103.42.59
-    User qortium
-    IdentityFile ~/.ssh/id_ed25519_qortium_preview_seeds
-    BatchMode yes
-    StrictHostKeyChecking accept-new
-```
-
-Verify: `ssh qortium-regxa 'curl -fsS --max-time 8 http://127.0.0.1:24891/admin/info'`
+Verify locally: `curl -fsS --max-time 8 http://127.0.0.1:24891/admin/info`.
+Check `collection.operatorKeys` and `errors` in the new snapshot to distinguish
+the configured managed observation from discovered public peers. One configured
+operator means the publisher's operator-height gate has no independent second
+operator to compare; it still rejects records containing collection errors.
 
 ## 4. Configure
 
